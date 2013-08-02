@@ -1,0 +1,273 @@
+#! /bin/python
+
+from lxml import etree
+from lxml.etree import tostring
+from xml.sax.saxutils import escape
+import sys
+import os
+import re
+import json
+import httplib2
+
+
+## FUNCTIONS
+
+## Function to create topics
+def loadsetting(file, setting):
+  config = open(file, 'r')
+  for configitem in config:
+    if configitem.startswith(setting):
+      return configitem.split(':')[1]
+
+def cleanline(xml):
+  finaltext = ""
+  for content in xml.itertext():
+    finaltext += content.strip() + " "
+  return finaltext
+
+def getbookinfo():
+  bookinfo = etree.parse('en-US/Book_Info.xml').getroot()
+  try:
+    bookinfo.xinclude()
+  except:
+    pass
+  abstract = bookinfo.find("abstract")
+  comments = abstract.xpath('//comment()')
+  for comment in comments:
+    parent = comment.getparent()
+    parent.remove(comment)
+
+  print "# Book_Info.xml content"
+  print "Title = " + bookinfo.find("title").text if bookinfo.find("title").text is not None else "Title = "
+  print "Subtitle = " + bookinfo.find("subtitle").text if bookinfo.find("subtitle").text is not None else "Subtitle = "
+  print "Abstract = " + cleanline(abstract)
+  print "Product = " + bookinfo.find("productname").text if bookinfo.find("productname").text is not None else "Product = "
+  print "Version = " + bookinfo.find("productnumber").text if bookinfo.find("productnumber").text is not None else "Version = "
+  print "Edition = " + bookinfo.find("edition").text if bookinfo.find("edition").text is not None else "Edition = "
+  print "DTD = Docbook 4.5"
+  print "Copyright Holder = Red Hat"
+
+  print ""
+  print "# publican.cfg content"
+  file = ('./publican.cfg')
+  print "Brand:" + loadsetting(file, "brand:")
+  print "publican.cfg = ["
+  print "xml_lang: en-US"
+  print "git_branch: docs-rhel-6"
+  print "]"
+  print ""
+
+
+def createtopic(topicxml, indent):
+  notes = ""
+  topicxml = etree.fromstring(topicxml)
+  title = topicxml.find("title")
+  etree.strip_tags(title, '*')
+  title = title.text
+  pretopic = ""
+  # check for chapter, appendix or section
+  if topicxml.tag == "chapter":
+    if parenttopic == False:
+      print (" " * (indent * 2)) + "Chapter: " + title
+      indent += 1
+    else:
+      pretopic = "Chapter: "
+
+  if topicxml.tag == "appendix":
+    if parenttopic == False:
+      print (" " * (indent * 2)) + "Appendix: " + title
+      indent += 1
+    else:
+      pretopic = "Appendix: "
+  if topicxml.tag == "section":
+    # check if section is a parent section
+    if checkforsections(tostring(topicxml)) == True:
+      if parenttopic == False:
+        print (" " * (indent * 2)) + "Section: " + title
+        indent += 1
+      else:
+        pretopic = "Section: "
+  # remove all sub-sections
+  sectionstoremove = topicxml.findall("section")
+  if len(sectionstoremove) != 0:
+    for sectiontoremove in sectionstoremove:
+      topicxml.remove(sectiontoremove)
+  # force the root element for this topic to be a section
+  topicxml.tag = "section"
+
+  xrefs = topicxml.iter("xref")
+  for xref in xrefs:
+    if xref is not None:
+      notes = " # NOTE: This topic contains xrefs that need correction before building in Pressgang"
+
+
+  # Pfft, we don't need SSL validation!
+  h = httplib2.Http(disable_ssl_certificate_validation=True)
+
+  if dryrun is not True:
+    sendobj = {'title': title, 'description': title, 'xml': tostring(topicxml, encoding='utf-8'), 'locale': 'en-US', 'configuredParameters': [ 'title','description','xml','locale']};
+    result = json.dumps(sendobj, indent=2)
+    resp, content = h.request('http://skynet-dev.usersys.redhat.com:8080/pressgang-ccms/rest/1/topic/create/json?message=Initial+Topic+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
+    if resp['status'] == '200':
+      topicid = json.loads(content)['id']
+    else:
+      print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
+      exit ()
+  else:
+    topicid = "xxxxx"
+  printtopic (title, indent, topicid, notes, pretopic)
+  if pretopic != "":
+    indent += 1
+  return indent
+
+## Function to check for sub-sections
+def checkforsections(topicxml):
+  topicxml = etree.fromstring(topicxml)
+  sections = topicxml.findall("section")
+  if len(sections) != 0:
+    sectionalert = True
+  else:
+    sectionalert = False
+  return sectionalert
+
+## Function to print topic titles
+def printtopic (title, indent, topicid, notes, pretopic):
+  print (" " * (indent * 2)) + pretopic + title + " [" + str(topicid) + "]" + notes # + " | Indent: " + str(indent)
+  return
+
+def getchapters (xml, indent, type="chapter"):
+  # get all chapters and cycle through them
+  chapters = xml.findall(type)
+  parents = []
+  parents.insert(0, xml)
+  for chapter in chapters:
+    while chapter not in parents[0]:
+      parents.pop(0)
+      indent -= 1
+    indent = createtopic (tostring(chapter), indent)
+    sections = chapter.iter("section")
+    parents.insert(0, chapter)
+    # get all sections in a chapter and cycle through them using the proper indentation
+    for section in sections:
+      # checking to determine if we need to reduce indentation i.e. section doesn't exist in our current parent section
+      while section not in parents[0]:
+        parents.pop(0)
+        indent -= 1
+      # checking for new parent section
+      check = checkforsections(tostring(section, encoding='utf-8'))
+      if check == True:
+        parents.insert(0, section)
+      # create the section topic
+      indent = createtopic(tostring(section, encoding='utf-8'), indent)
+
+def uploadimages (xml):
+  print "# Uploading images"
+  filenames = re.compile(r'images/.*\.png')
+  images = filenames.findall(tostring(xml))
+  for image in images:
+    try:
+      file = open("en-US/" + image, "rb")
+    except:
+      print "# File not found: " + image
+    else:
+      print "# " + str(image)
+  return xml
+## END FUNCTIONS
+
+
+
+## MAIN SCRIPT
+
+# INITIAL DEFINTIONS
+
+dryrun = False
+parenttopic = False
+bookname = None
+usage = "Usage: chopbook [--dry-run] book_name"
+
+# get the CLI args
+args = [];
+args = list(sys.argv);
+
+# pop the shell command name
+shell = args.pop(0)
+
+# display help if no book_name
+if len(args) < 1:
+  print usage
+  exit ()
+
+ # check args
+while len(args) > 0:
+  if args[0] == "--help" or args[0] == "-h":
+    print usage
+    exit ()
+  elif args[0] == "--dry-run":
+    print "Performing dry-run..."
+    args.pop(0)
+    dryrun = True
+  elif args[0] == "--parent-topics":
+    print "Using section headings for parent topics..."
+    args.pop(0)
+    parenttopic = True
+  else:
+    # set the filename
+    bookname = args.pop(0)
+
+if bookname is None:
+    print usage
+    exit ()
+
+try:
+   with open('en-US/' + bookname + ".xml"): pass
+except IOError:
+   print 'Error: Book not found. Please check the book name and try again.'
+   exit ()
+
+# get and print the Book_Info.xml and publican.cfg        indent -= 1 details
+getbookinfo()
+
+# parse the main book file into an xml etree
+tree = etree.parse('en-US/' + bookname + ".xml")
+
+book = tree.getroot()
+
+# remove the common content
+for xiinclude in book:
+  if "include" in str(xiinclude.tag) and (xiinclude.attrib['href'] == "Book_Info.xml" or xiinclude.attrib['href'] == "Article_Info.xml" or xiinclude.attrib['href'] == "Preface.xml" or xiinclude.attrib['href'] == "Revision_History.xml"):
+    book.remove(xiinclude)
+
+# build a full xml tree of the book using the ix includes
+tree.xinclude()
+
+uploadimages (book)
+
+#exit()
+
+if book.tag == "book":
+  parts = book.findall("part")
+  # does the book use parts to divide itself?
+  if len(parts) > 0:
+  # perform a chapter-by-chapter import within each part
+    for part in parts:
+      print "Part: " + part.find("title").text
+      getchapters (part, 1)
+      getchapters (part, 1, "appendix")
+      getchapters (book, 0, "appendix")
+  # else just perform a single chapter-by-chapter import
+  else:
+    getchapters (book, 0)
+    getchapters (book, 0, "appendix")
+elif book.tag == "article":
+  indent = 0
+  parents = []
+  parents.insert(0, book)
+  sections = book.iter("section")
+  for section in sections:
+    while section not in parents[0]:
+      parents.pop(0)
+      indent -= 1
+    check = checkforsections(tostring(section, encoding='utf-8'))
+    if check == True:
+      parents.insert(0, section)
+    indent = createtopic(tostring(section, encoding='utf-8'), indent)

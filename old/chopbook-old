@@ -1,0 +1,98 @@
+#! /bin/python
+
+from lxml import etree
+from lxml.etree import tostring
+from xml.sax.saxutils import escape
+import sys
+import os
+import re
+import json
+import httplib2
+
+# get the CLI args
+args = [];
+args = list(sys.argv);
+
+shell = args.pop(0);      # pop the shell command name
+
+for checkhelp in args:
+  if checkhelp == "--help" or checkhelp == "-h":
+    print "Usage: chopbook [book_name]";
+    exit ();
+
+if len(args) < 1:
+  print "Usage: chopbook [book_name]";
+  exit ();
+
+filename = args.pop(0)     # set the filename
+
+tree = etree.parse('en-US/' + filename)
+book = tree.getroot()
+
+for xiinclude in book:
+  if "include" in str(xiinclude.tag):
+    if xiinclude.attrib['href'] == "Book_Info.xml" or xiinclude.attrib['href'] == "Preface.xml":
+      book.remove(xiinclude)
+
+tree.xinclude()
+
+indent = 0
+topicid = 11111
+
+for chapter in book:
+  # Get the chapter
+  if chapter.tag == "chapter":
+    title = chapter.find("title")
+    print "Chapter: " + title.text
+    indent += 2
+    # Create the first chapter topic
+    chaptertopicxml = tostring(chapter)
+    chaptertopicxml = etree.fromstring(chaptertopicxml)
+    sectionstoremove = chaptertopicxml.findall("section")
+    if len(sectionstoremove) != 0:
+      for sectiontoremove in sectionstoremove:
+        chaptertopicxml.remove(sectiontoremove)
+    chaptertopicxml.tag = "section"
+    chaptertopic = tostring(chaptertopicxml)
+    topicfile = open('topics/'+ str(topicid) +'.txt', 'w')
+    topicfile.write (chaptertopic)
+    topicfile.close()
+    print (" " * indent) + title.text + " [" + str(topicid) + "]"
+    topicid += 1
+    sections = chapter.iter("section")
+    topics = []
+    for section in sections:
+      topics.append(tostring(section))
+    insection = False
+    for topic in topics:
+      # remove sections from sections
+      topicxml = etree.fromstring(topic)
+      sectionstoremove = topicxml.findall("section")
+      if len(sectionstoremove) != 0:
+        insection = True
+        for sectiontoremove in sectionstoremove:
+          topicxml.remove(sectiontoremove)
+        topic = tostring(topicxml)
+        topicfile = open('topics/'+ str(topicid) +'.txt', 'w')
+        topicfile.write (topic)
+        topicfile.close()
+        print (" " * indent) + "Section: " + topicxml.find("title").text
+        indent += 2
+        print (" " * indent) + topicxml.find("title").text + " [" + str(topicid) + "]"
+        topicid += 1
+        indent -= 2
+      else:
+        if insection == True:
+          indent += 2
+        topic = tostring(topicxml)
+        topicfile = open('topics/'+ str(topicid) +'.txt', 'w')
+        topicfile.write (topic)
+        topicfile.close()
+        print (" " * indent) + topicxml.find("title").text + " [" + str(topicid) + "]"
+        topicid += 1
+        if insection == True:
+          indent -= 2
+    insection = False
+      ##print "========================================================"
+      ##print topic
+    indent -= 2

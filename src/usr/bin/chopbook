@@ -107,7 +107,7 @@ def createtopic(topicxml, indent):
   if dryrun is not True:
     sendobj = {'title': title, 'description': title, 'xml': tostring(topicxml, encoding='utf-8'), 'locale': 'en-US', 'configuredParameters': [ 'title','description','xml','locale']};
     result = json.dumps(sendobj, indent=2)
-    resp, content = h.request('http://skynet-dev.usersys.redhat.com:8080/pressgang-ccms/rest/1/topic/create/json?message=Initial+Topic+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
+    resp, content = h.request('http://skynet.usersys.redhat.com:8080/pressgang-ccms/rest/1/topic/create/json?message=Initial+Topic+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
     if resp['status'] == '200':
       topicid = json.loads(content)['id']
     else:

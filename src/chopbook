@@ -91,7 +91,8 @@ def getbookinfo():
   comments = abstract.xpath('//comment()')
   for comment in comments:
     parent = comment.getparent()
-    parent.remove(comment)
+    if parent is not None:
+      parent.remove(comment)
   etree.strip_tags (abstract, "*")
   abstract = xmltostring(abstract)
   cspec = []
@@ -130,7 +131,7 @@ def createtopic(topicxml, dryrun, h):
     if "id" in find_id.attrib: id.append(find_id.attrib['id'])
   if len(id) == 0: id.append("None")
   xrefs = topicxml.iter("xref")
-  if topicxml.tag == "part":
+  if topicxml.tag == "part" and topicxml.find("partintro") is not None:
     topicxml = topicxml.find("partintro")
     topicxml.insert(0, topic_title)
   topicxml.tag = "section"
@@ -171,10 +172,13 @@ def puttopic(topicid, xml, h):
 def uploadimages (xml, h, logfile):
   cspec = []
   imagearray = {}
-  xml = tostring(xml)
-  cspec.append("# Uploading images")
-  filenames = re.compile(r'images/.*\.png')
-  images = filenames.findall(xml)
+  images = xml.xpath("//@fileref")
+  images = set(images)
+  #images.append(element.attrib['fileref'])
+  #cspec.append("# Uploading images")
+  #filenames = re.compile(r'images/.*[^-\s]\.png')
+  #images = filenames.findall(xml)
+
   total_progress = len(images)
   # print "Uploading images..."
   print "Uploading " + str(total_progress) + " images..."

@@ -297,6 +297,7 @@ Then run:
 
 Options:
   --test-server     Migrate to the Pressgang test server
+  --no-spec-create  Do not upload the resulting content spec to Pressgang
 """
 
 # Pfft, we don't need SSL validation!

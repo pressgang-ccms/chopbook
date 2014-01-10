@@ -10,6 +10,7 @@ import json
 import htmlentitydefs
 import base64
 import time
+import urllib
 
 # Other Python modules
 from lxml import etree
@@ -80,21 +81,53 @@ def xmltostring(xml):
 
 ## Main Chopbook Functions
 
-# Get data from Book_Info.xml and publican.cfg and save it to a list. This forms the top part of a content spec.
+# Get data from Book_Info.xml, Author_Group.xml, Revision_History.xml, and publican.cfg and save it to a list. This forms the top part of a content spec.
 def getbookinfo():
-  bookinfo = etree.parse('en-US/Book_Info.xml', properties).getroot()
+  bookinfo         = etree.parse('en-US/Book_Info.xml', properties).getroot()
+  authorgroup      = etree.parse('en-US/Author_Group.xml', properties).getroot()
+  revisionhistory  = etree.parse('en-US/Revision_History.xml', properties).getroot()
+
+  '''
+  Pressgang has the ability to create Author Group and Revision History topics. These topics
+  need to be tagged with the "Author Group" and "Revision History" topics respectively. This section
+  finds these tags through the API and assigns them to the newly created topics
+  '''
+  # URL encode a special entity branching parameter
+  tagparams = urllib.quote('{"branches":[{"trunk":{"name":"tags"}}]}')
+  # Get all the tags from Pressgang
+  tagresp, tags = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/tags/get/json/all?expand='+tagparams, method="GET", headers={'Content-Type':'application/json'})
+  tags = json.loads(tags)
+  # Find the Author Group and Revision History tags
+  for tag in tags['items']:
+    if tag['item']['name'] == "Author Group":
+      print "Using tag " + str(tag['item']['id']) + " for Author Group..."
+      authgrouptag = tag['item']['id']
+    if tag['item']['name'] == "Revision History":
+      print "Using tag " + str(tag['item']['id']) + " for Revision History..."
+      revhistorytag = tag['item']['id']
+  # Create topics for the Author Group and Revision History and tag them accordingly
+  authgroupid, authtitle, authid = createtopic(authorgroup, "Author Group", False, h, {"items":[{"item":{"id": authgrouptag},"state": 1}]}, False)
+  print "Creating topic " + str(authgroupid) + " for Author Group..."
+  revhistoryid, revtitle, revid = createtopic(revisionhistory, None, False, h, {"items":[{"item":{"id": revhistorytag},"state": 1}]}, False)
+  print "Creating topic " + str(revhistoryid) + " for Revision History..."
+
+  # Try building the Book_Info.xml with xincludes
   try:
     bookinfo.xinclude()
   except:
     pass
+
+  # Get the abstract
   abstract = bookinfo.find("abstract")
   comments = abstract.xpath('//comment()')
   for comment in comments:
     parent = comment.getparent()
     if parent is not None:
       parent.remove(comment)
-  etree.strip_tags (abstract, "*")
+  etree.strip_tags(abstract, "*")
   abstract = xmltostring(abstract)
+
+  # Create the initial content spec content and return it
   cspec = []
   file = ('./publican.cfg')
   cspec.extend ([
@@ -107,6 +140,8 @@ def getbookinfo():
     "Edition = " + xmltostring(bookinfo.find("edition")) if bookinfo.find("edition").text is not None else "Edition = ",
     "DTD = Docbook 4.5",
     "Copyright Holder = Red Hat",
+    "Author Group = [" + str(authgroupid) + "]",
+    "Revision History = [" + str(revhistoryid) + "]",
     "",
     "# publican.cfg content",
     "Brand = " + loadsetting(file, "brand:"),
@@ -118,25 +153,49 @@ def getbookinfo():
   ])
   return cspec
 
-# Create a topic. If dry run is enabled, don't save it; just return "xxxxx"
-def createtopic(topicxml, dryrun, h):
-  notes = ""
+'''
+Create a topic.
+
+= Parameters =
+
+
+topicxml        - The topic xml object.
+customtitle     - Defines a custom title for the topic. If set to none, use the content in the first child <title> tag.
+                  This parameter is used to give titles to topics without a <title> tag (e.g. Author Group topics).
+dryrun          - Simulate topic creation but don't actually create the topic. Used for testing purposes.
+h               - HTTP object for interacting with the REST API.
+tags            - Tag entities to assign to the topic. Must be a JSON object using the standard Pressgang entity assignment format.
+changetosection - Change the topic's root tag to <section>. Used for all topics EXCEPT Author Group and Revision History.
+'''
+def createtopic(topicxml, customtitle, dryrun, h, tags, changetosection):
   id = []
-  section_empty = False
-  topic_title = topicxml.find("title")
-  title = xmltostring(topic_title)
+
+  # Define the topic title
+  if customtitle is None:
+    topic_title = topicxml.find("title")
+    title = xmltostring(topic_title)
+  else:
+    title = customtitle
+
+  # Does the topic have any id attribute? If so, record them in case another topic xrefs it.
   if "id" in topicxml.attrib: id.append(topicxml.attrib["id"])
   all_elements = topicxml.findall("*")
   for find_id in all_elements:
     if "id" in find_id.attrib: id.append(find_id.attrib['id'])
   if len(id) == 0: id.append("None")
-  xrefs = topicxml.iter("xref")
+
+  # Fix the structure of <part> topics containing <partintro> so that they can be properly converted to a format that Pressgang can consume.
   if topicxml.tag == "part" and topicxml.find("partintro") is not None:
     topicxml = topicxml.find("partintro")
     topicxml.insert(0, topic_title)
-  topicxml.tag = "section"
+
+  # If required, change the root tag to <section>
+  if changetosection is True:
+    topicxml.tag = "section"
+
+  # Create the topic (unless dryrun is enabled)
   if dryrun is not True:
-    sendobj = {'title': title, 'description': title, 'xml': reencode(tostring(topicxml)), 'locale': 'en-US', 'configuredParameters': [ 'title','description','xml','locale']};
+    sendobj = {'title': title, 'description': title, 'xml': reencode(tostring(topicxml)), 'locale': 'en-US', 'tags': tags, 'configuredParameters': [ 'title','description','xml','locale','tags']};
     result = json.dumps(sendobj, indent=2)
     resp, content = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/create/json?message=Initial+Topic+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
     if resp['status'] == '200':
@@ -146,8 +205,11 @@ def createtopic(topicxml, dryrun, h):
       exit ()
   else:
     topicid = "xxxxx"
+
+  # Return the topic ID and the topic title. Also return the list of ids in the topic for the xref conversion.
   return topicid, title, id
 
+# Retrieve a topic from Pressgang using the topic ID number.
 def gettopic(topicid, h):
   resp, content = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/get/json/' + str(topicid) + '/', method="GET");
   if resp['status'] == '200':
@@ -158,6 +220,7 @@ def gettopic(topicid, h):
     exit ()
   return xml
 
+# Update a topic from Pressgang using the topic ID number and XML string.
 def puttopic(topicid, xml, h):
   sendobj = {'id': topicid, 'xml': xml, 'configuredParameters': [ 'xml']}
   result = json.dumps(sendobj, indent=2)
@@ -170,17 +233,11 @@ def puttopic(topicid, xml, h):
 
 # Upload all images in a book
 def uploadimages (xml, h, logfile):
-  cspec = []
   imagearray = {}
   images = xml.xpath("//@fileref")
   images = set(images)
-  #images.append(element.attrib['fileref'])
-  #cspec.append("# Uploading images")
-  #filenames = re.compile(r'images/.*[^-\s]\.png')
-  #images = filenames.findall(xml)
 
   total_progress = len(images)
-  # print "Uploading images..."
   print "Uploading " + str(total_progress) + " images..."
   pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress + 1).start()
   current_progress = 1
@@ -213,6 +270,7 @@ def uploadimages (xml, h, logfile):
 # INITIAL DEFINTIONS
 
 dryrun = False
+no_spec_create = False
 bookname = None
 properties = etree.XMLParser(load_dtd = True, resolve_entities = True)
 cspec = []
@@ -264,6 +322,9 @@ while len(args) > 0:
   elif args[0] == "--test-server":
     args.pop(0)
     pressgang_host = "skynet-dev.usersys.redhat.com"
+  elif args[0] == "--no-spec-create":
+    args.pop(0)
+    no_spec_create = True
   else:
     # set the filename
     bookname = args.pop(0)
@@ -355,7 +416,7 @@ for section in book:
         subsectiontitle = ""
       else:
         subsectiontitle = sectionlistitem.tag.capitalize() + ": "
-      topicid, title, id = createtopic(checksection, dryrun, h)
+      topicid, title, id = createtopic(checksection, None, dryrun, h, None, True)
       logentry (logfile, "Created topic " + str(topicid) + " - " + title)
       current_progress += 1
       pbar.update(current_progress)
@@ -438,4 +499,8 @@ with open(pressgang_path + "/" + bookname + ".cspec", 'w') as file:
 
 logentry (logfile, "Book migration to Pressgang CCMS complete")
 
+if no_spec_create is False:
+  print "Creating content spec on the Pressgang server..."
+  os.system("cd " + pressgang_path + " ; csprocessor create -H http://" + pressgang_host + ":8080/TopicIndex " + bookname + ".cspec")
+  os.system("cd .. ")
 exit()

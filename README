@@ -67,7 +67,7 @@ Also, if the chopbook script is not executable, change the permissions:
 
 == Notes ==
 
-Use the --test-sever option chopbook to migrate the book to the Pressgang dev server (skynet-dev.usersys.redhat.com) instead of the main Pressgang CCMS server (skynet.usersys.redhat.com). I recommend using this method to test your book first before importing to Pressgang. If it succeeds with --test-server, then it should succeed with the real Pressgang server.
+Use the --test-sever option to migrate the book to the Pressgang dev server (skynet-dev.usersys.redhat.com) instead of the main Pressgang CCMS server (skynet.usersys.redhat.com). I recommend using this method to test your book first before importing to Pressgang. If it succeeds with --test-server, then it should succeed with the real Pressgang server.
 
 I've tested on the following books so far:
 

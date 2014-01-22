@@ -551,9 +551,26 @@ total_progress = len(topicid_list)
 pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress).start()
 current_progress = 0
 
-# create the initial batch of topics without any xrefs to other topics
-# we will use these topics to recursively resolve xrefs in other topics
+# When a topic is uploaded Pressgang can optionally match the contents of the topic to any existing topics
+# to ensure that duplicate content is not created. This is useful when uploading different versions of
+# books that share a lot of contents.
+
+# The catch is that the topic being uploaded needs to have all xrefs resolved, and we can't know the topic
+# id to resolve an xref to until it is uploaded to the server.
+
+# To work around this issue we incrementally upload topics, starting with those that have no outgoing xrefs.
+# This initial batch can be uploaded to the server and matched for duplicates because we don't have to
+# edit any xrefs in the topics XML.
+
 saveAnyUnsavedTopicsWithoutXrefs()
+
+# Now we progressively process topics that have xrefs, resolving them to any that we have uploaded. If any
+# topics have all their xrefs resolved, they too are uploaded, and the pool of topics that xrefs can be
+# resolved against grows until all topics have all their xrefs resolved.
+
+# The only case when this won't work is if there is a circular reference e.g.
+# Topic A xrefs -> Topic B xrefs -> Topic C xrefs -> Topic A. In this case we can't upload any of the topics
+# until any of the other topics are uploaded, and the process breaks.
 
 while True:
 
@@ -612,6 +629,9 @@ while True:
                 else:
                     logentry(logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(
                         imagearray[image]) + ".png")
+
+        # Save the changes back
+        xml['xml'] = fromstring(topic)
 
     # save any topics that had all their xrefs resolved
     saveAnyUnsavedTopicsWithoutXrefs()

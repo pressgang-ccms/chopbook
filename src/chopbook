@@ -637,13 +637,34 @@ while True:
     saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 
     # If this loop did not resolve any xrefs, it is because they are all resolved,
-    # or there is a circular dependency that we are not going to deal with
+    # or there is a circular dependency that we have to fix in the next step
     if not resolvedXrefs: break
 
 pbar.finish()
 logentry(logfile, "xref and image fix complete")
 
-print str(len(id_dict) - len(pressgangid_dict)) + " topics not processed"
+# At this point we have topics with circular references. Here we display some info on the circular references
+def getIndent(indent):
+    retValue = ""
+    for i in xrange(indent):
+        retValue += " "
+    return retValue
+
+def displayOutgoingLinks(starttopicid, topicid, visitedtopics, indent):
+    visitedtopics.append(topicid)
+    # Get the unsaved topics that this topics xrefs out to
+    target_topics = {k: v for k, v in id_dict.iteritems() if v in xrefs_dict[topicid] and k not in pressgangid_dict.keys()}
+    for target_topicid in target_topics.keys():
+        closed_loop = target_topicid == starttopicid;
+        print getIndent(indent) + ("* " if closed_loop  else "") + "Topic '" + topicxml_dict[topicid]['title'] + "' links to '" + topicxml_dict[target_topicid]['title'] + "'"
+        if target_topicid not in visitedtopics:
+            displayOutgoingLinks(starttopicid, target_topicid, visitedtopics, indent + 1)
+
+
+for topicid, xrefs in topicsToProcess().items():
+    print ""
+    displayOutgoingLinks(topicid, topicid, [], 0)
+
 
 # Now that we have pressgang topic ids to go with the topics found in the book,
 # update the content spec lines

@@ -1,0 +1,10 @@
+Metadata-Version: 1.0
+Name: chopbook
+Version: 1.0
+Summary: Utility tool for uploading Publican books to Pressgang CCMS
+Home-page: https://github.com/pressgang-ccms/chopbook
+Author: Dan Macpherson
+Author-email: dmacpher@redhat.com
+License: LGPL
+Description: UNKNOWN
+Platform: UNKNOWN

@@ -6,8 +6,7 @@ Version:        1.0
 Release:        1
 Summary:        Utility tool for uploading Publican books to Pressgang CCMS
 Group:          Applications/System
-License:        LGPL
-Vendor:         Red Hat, Inc.
+License:        Beerware
 URL:            https://github.com/pressgang-ccms/chopbook
 
 Source0:        chopbook-%{version}.tar.gz

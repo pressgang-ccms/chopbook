@@ -357,7 +357,7 @@ def topicsThatCanBeSaved():
 '''
     This method will save any topics that don't have any xrefs to be changed into the comment injections
 '''
-def saveAnyUnsavedTopicsWithoutXrefs():
+def saveAnyUnsavedTopicsWithoutUnresolvedXrefs():
     for topicid, topicdetails in topicsThatCanBeSaved().items():
         pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
         pressgangid_dict[topicid] = pressgangid
@@ -562,9 +562,9 @@ current_progress = 0
 # This initial batch can be uploaded to the server and matched for duplicates because we don't have to
 # edit any xrefs in the topics XML.
 
-saveAnyUnsavedTopicsWithoutXrefs()
+saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 
-# Now we progressively process topics that have xrefs, resolving them to any that we have uploaded. If any
+# Now we progressively process topics that have xrefs, resolving them to any topics that we have uploaded. If any
 # topics have all their xrefs resolved, they too are uploaded, and the pool of topics that xrefs can be
 # resolved against grows until all topics have all their xrefs resolved.
 
@@ -634,7 +634,7 @@ while True:
         xml['xml'] = fromstring(topic)
 
     # save any topics that had all their xrefs resolved
-    saveAnyUnsavedTopicsWithoutXrefs()
+    saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 
     # If this loop did not resolve any xrefs, it is because they are all resolved,
     # or there is a circular dependency that we are not going to deal with

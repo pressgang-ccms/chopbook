@@ -559,7 +559,7 @@ while True:
 
     # we need to know if this iteration resolved any more xrefs
     resolvedXrefs = False
-    processedTopics = processedTopics()
+    availableToResolve = processedTopics()
 
     for topicid in topicsToProcess().keys():
 
@@ -574,12 +574,12 @@ while True:
         xml = topicxml_dict[topicid];
         # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
         for xref in xml['xml'].iter("xref"):
-            if 'linkend' in xref.attrib and xref.attrib['linkend'] in processedTopics.values():
+            if 'linkend' in xref.attrib and xref.attrib['linkend'] in availableToResolve.values():
                 xref.tag = "xref_change"
         # Convert the etree object back to a string
         topic = tostring(xml['xml'])
         # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
-        for xref_topicid, xref_id in processedTopics.items():
+        for xref_topicid, xref_id in availableToResolve.items():
             #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
             regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
             if regexp.search(topic) is not None:

@@ -16,7 +16,7 @@ In the future, I'll be packaging it with these RPMs as dependencies. For the mom
 
 2. Clone the chopbook git repo:
 
-    $ git clone git://git.engineering.redhat.com/users/dmacpher/chopbook.git/.git
+    $ git clone git@github.com:pressgang-ccms/chopbook.git
     $ cd chopbook
 
 3. Install the chopbook script by placing it in a bin directory within your home directory (i.e. ~/bin):
@@ -67,7 +67,7 @@ Also, if the chopbook script is not executable, change the permissions:
 
 == Notes ==
 
-Use the --test-sever option to migrate the book to the Pressgang dev server (skynet-dev.usersys.redhat.com) instead of the main Pressgang CCMS server (skynet.usersys.redhat.com). I recommend using this method to test your book first before importing to Pressgang. If it succeeds with --test-server, then it should succeed with the real Pressgang server.
+Use the --test-sever option to migrate the book to the Pressgang dev server instead of the main Pressgang CCMS server. I recommend using this method to test your book first before importing to Pressgang. If it succeeds with --test-server, then it should succeed with the real Pressgang server.
 
 I've tested on the following books so far:
 

@@ -1,5 +1,7 @@
 #! /bin/python
 
+# sudo yum install python-progressbar python-lxml python3-lxml python-httplib2 python3-httplib2
+
 # Core Python modules
 import shutil
 import copy
@@ -24,134 +26,197 @@ import httplib2
 ## Basic Housekeeping Functions
 
 # Append an entry to the logfile
-def logentry (file, message):
-  logfile = open(file, "a+")
-  logfile.write (time.strftime("%Y-%m-%d - %H:%M:%S") + " - " + message + "\n")
-  logfile.close()
+def logentry(file, message):
+    logfile = open(file, "a+")
+    logfile.write(time.strftime("%Y-%m-%d - %H:%M:%S") + " - " + message + "\n")
+    logfile.close()
 
 # Get the depth of a part/chapter/appendix/section
 def depth(node):
-  node_depth = 0
-  while node is not None:
-    node_depth += 1
-    node = node.getparent()
-  return node_depth
+    node_depth = 0
+    while node is not None:
+        node_depth += 1
+        node = node.getparent()
+    return node_depth
 
 # Load an xml file
 def loadxml(file, properties):
-  xml = etree.parse(file, properties)
-  return xml
+    xml = etree.parse(file, properties)
+    return xml
 
 # Generate an entire XML doc with xincludes
 def xixml(xml):
-  try:
-    xml.xinclude()
-  except:
-    pass
-  return xml
+    try:
+        xml.xinclude()
+    except:
+        pass
+    return xml
 
 # Loading a setting from a file (used with publican.cfg)
 def loadsetting(file, setting):
-  config = open(file, 'r')
-  for configitem in config:
-    if configitem.startswith(setting):
-      return configitem.split(':')[1]
+    config = open(file, 'r')
+    for configitem in config:
+        if configitem.startswith(setting):
+            return configitem.split(':')[1]
 
 # Strip tags (the lxml strip_tags function doesn't work exactly the way I want it to)
 def tagstrip(string):
-  return re.sub('<[^<]+?>', '', string)
+    return re.sub('<[^<]+?>', '', string)
 
 # Get rid of additional whitespace
 def cleanline(string):
-  return " ".join(string.split())
+    return " ".join(string.split())
 
 # Re-encode special character codes to their names (e.g. &#160; to &nbsp;)
 def reencode(string):
-  for code,name in htmlentitydefs.codepoint2name.items():
-    string = re.sub('&#'+str(code)+';', '&'+name+';', string)
-  return string
+    for code, name in htmlentitydefs.codepoint2name.items():
+        string = re.sub('&#' + str(code) + ';', '&' + name + ';', string)
+    return string
 
 # Parent function to convert and sanitize and xml etree object into a string
 def xmltostring(xml):
-  string = tostring(xml)
-  string = tagstrip(string)
-  string = cleanline(string)
-  string = reencode(string)
-  return string
+    string = tostring(xml)
+    string = tagstrip(string)
+    string = cleanline(string)
+    string = reencode(string)
+    return string
 
 ## Main Chopbook Functions
 
 # Get data from Book_Info.xml, Author_Group.xml, Revision_History.xml, and publican.cfg and save it to a list. This forms the top part of a content spec.
 def getbookinfo():
-  bookinfo         = etree.parse('en-US/Book_Info.xml', properties).getroot()
-  authorgroup      = etree.parse('en-US/Author_Group.xml', properties).getroot()
-  revisionhistory  = etree.parse('en-US/Revision_History.xml', properties).getroot()
+    bookinfo = etree.parse('en-US/Book_Info.xml', properties).getroot()
+    revisionhistory = etree.parse('en-US/Revision_History.xml', properties).getroot()
 
-  '''
+    # Older RHEL books don't have an Author_Group, and instead use corpauthor in Book_Info.xml
+    if os.path.exists('en-US/Author_Group.xml'):
+        authorgroup = etree.parse('en-US/Author_Group.xml', properties).getroot()
+    elif bookinfo.find("corpauthor").text is not None:
+        authorgroup = bookinfo.find("corpauthor")
+    elif bookinfo.find("corpauthor").text is not None:
+        authorgroup = bookinfo.find("authorgroup")
+
+    '''
   Pressgang has the ability to create Author Group and Revision History topics. These topics
   need to be tagged with the "Author Group" and "Revision History" topics respectively. This section
   finds these tags through the API and assigns them to the newly created topics
   '''
-  # URL encode a special entity branching parameter
-  tagparams = urllib.quote('{"branches":[{"trunk":{"name":"tags"}}]}')
-  # Get all the tags from Pressgang
-  tagresp, tags = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/tags/get/json/all?expand='+tagparams, method="GET", headers={'Content-Type':'application/json'})
-  tags = json.loads(tags)
-  # Find the Author Group and Revision History tags
-  for tag in tags['items']:
-    if tag['item']['name'] == "Author Group":
-      print "Using tag " + str(tag['item']['id']) + " for Author Group..."
-      authgrouptag = tag['item']['id']
-    if tag['item']['name'] == "Revision History":
-      print "Using tag " + str(tag['item']['id']) + " for Revision History..."
-      revhistorytag = tag['item']['id']
-  # Create topics for the Author Group and Revision History and tag them accordingly
-  authgroupid, authtitle, authid = createtopic(authorgroup, "Author Group", False, h, {"items":[{"item":{"id": authgrouptag},"state": 1}]}, False)
-  print "Creating topic " + str(authgroupid) + " for Author Group..."
-  revhistoryid, revtitle, revid = createtopic(revisionhistory, None, False, h, {"items":[{"item":{"id": revhistorytag},"state": 1}]}, False)
-  print "Creating topic " + str(revhistoryid) + " for Revision History..."
+    # URL encode a special entity branching parameter
+    tagparams = urllib.quote('{"branches":[{"trunk":{"name":"tags"}}]}')
+    # Get all the tags from Pressgang
+    tagresp, tags = h.request(
+        'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/tags/get/json/all?expand=' + tagparams, method="GET",
+        headers={'Content-Type': 'application/json'})
+    tags = json.loads(tags)
+    # Find the Author Group and Revision History tags
+    for tag in tags['items']:
+        if tag['item']['name'] == "Author Group":
+            print "Using tag " + str(tag['item']['id']) + " for Author Group..."
+            authgrouptag = tag['item']['id']
+        if tag['item']['name'] == "Revision History":
+            print "Using tag " + str(tag['item']['id']) + " for Revision History..."
+            revhistorytag = tag['item']['id']
+    # Create topics for the Author Group and Revision History and tag them accordingly
+    authtitle, authid, xrefs = processtopic(authorgroup, "Author Group", False)
+    authgroupid, matchedExistingTopic = createtopic(authorgroup, authtitle, dryrun, h,
+                                                    {"items": [{"item": {"id": authgrouptag}, "state": 1}]})
+    print "Creating topic " + str(authgroupid) + " for Author Group..."
 
-  # Try building the Book_Info.xml with xincludes
-  try:
-    bookinfo.xinclude()
-  except:
-    pass
+    revtitle, revid, xrefs = processtopic(revisionhistory, None, False)
+    revhistoryid, matchedExistingTopic = createtopic(revisionhistory, revtitle, dryrun, h,
+                                                     {"items": [{"item": {"id": revhistorytag}, "state": 1}]})
+    print "Creating topic " + str(revhistoryid) + " for Revision History..."
 
-  # Get the abstract
-  abstract = bookinfo.find("abstract")
-  comments = abstract.xpath('//comment()')
-  for comment in comments:
-    parent = comment.getparent()
-    if parent is not None:
-      parent.remove(comment)
-  etree.strip_tags(abstract, "*")
-  abstract = xmltostring(abstract)
+    # Try building the Book_Info.xml with xincludes
+    try:
+        bookinfo.xinclude()
+    except:
+        pass
 
-  # Create the initial content spec content and return it
-  cspec = []
-  file = ('./publican.cfg')
-  cspec.extend ([
-    "# Book_Info.xml content",
-    "Title = " + xmltostring(bookinfo.find("title")) if bookinfo.find("title").text is not None else "Title = ",
-    "Subtitle = " + xmltostring(bookinfo.find("subtitle")) if bookinfo.find("subtitle").text is not None else "Subtitle = ",
-    "Abstract = " + abstract,
-    "Product = " + xmltostring(bookinfo.find("productname")) if bookinfo.find("productname").text is not None else "Product = ",
-    "Version = " + xmltostring(bookinfo.find("productnumber")) if bookinfo.find("productnumber").text is not None else "Version = 1",
-    "Edition = " + xmltostring(bookinfo.find("edition")) if bookinfo.find("edition").text is not None else "Edition = ",
-    "DTD = Docbook 4.5",
-    "Copyright Holder = Red Hat",
-    "Author Group = [" + str(authgroupid) + "]",
-    "Revision History = [" + str(revhistoryid) + "]",
-    "",
-    "# publican.cfg content",
-    "Brand = " + loadsetting(file, "brand:"),
-    "publican.cfg = [",
-    "xml_lang: en-US",
-    "git_branch: docs-rhel-6",
-    "]"
-    ""
-  ])
-  return cspec
+    # Get the abstract
+    abstract = bookinfo.find("abstract")
+    comments = abstract.xpath('//comment()')
+    for comment in comments:
+        parent = comment.getparent()
+        if parent is not None:
+            parent.remove(comment)
+    etree.strip_tags(abstract, "*")
+    abstract = xmltostring(abstract)
+
+    # Create the initial content spec content and return it
+    cspec = []
+    file = ('./publican.cfg')
+    cspec.extend([
+        "# Book_Info.xml content",
+        "Title = " + xmltostring(bookinfo.find("title")) if bookinfo.find("title").text is not None else "Title = ",
+        "Subtitle = " + xmltostring(bookinfo.find("subtitle")) if bookinfo.find(
+            "subtitle").text is not None else "Subtitle = ",
+        "Abstract = " + abstract,
+        "Product = " + xmltostring(bookinfo.find("productname")) if bookinfo.find(
+            "productname").text is not None else "Product = ",
+        "Version = " + xmltostring(bookinfo.find("productnumber")) if bookinfo.find(
+            "productnumber").text is not None else "Version = 1",
+        "Edition = " + xmltostring(bookinfo.find("edition")) if bookinfo.find(
+            "edition").text is not None else "Edition = ",
+        "DTD = Docbook 4.5",
+        "Copyright Holder = Red Hat",
+        "Author Group = [" + str(authgroupid) + "]",
+        "Revision History = [" + str(revhistoryid) + "]",
+        "",
+        "# publican.cfg content",
+        "Brand = " + loadsetting(file, "brand:"),
+        "publican.cfg = [",
+        "xml_lang: en-US",
+        "git_branch: docs-rhel-6",
+        "]"
+        ""
+    ])
+    return cspec
+
+
+'''
+Formats the topic's XML, and extracts the title and xrefs ids.
+
+= Parameters =
+
+topicxml        - The topic xml object.
+customtitle     - Defines a custom title for the topic. If set to none, use the content in the first child <title> tag.
+changetosection - Change the topic's root tag to <section>. Used for all topics EXCEPT Author Group and Revision History.
+'''
+
+
+def processtopic(topicxml, customtitle, changetosection):
+    id = None
+    xrefs = []
+
+    # Define the topic title
+    if customtitle is None:
+        topic_title = topicxml.find("title")
+        title = xmltostring(topic_title)
+    else:
+        title = customtitle
+
+    # Does the topic have any id attribute? If so, record them in case another topic xrefs it.
+    if "id" in topicxml.attrib: id = topicxml.attrib["id"]
+
+    # Fix the structure of <part> topics containing <partintro> so that they can be properly converted to a format that Pressgang can consume.
+    if topicxml.tag == "part" and topicxml.find("partintro") is not None:
+        topicxml = topicxml.find("partintro")
+        topicxml.insert(0, topic_title)
+
+    # If required, change the root tag to <section>
+    if changetosection is True:
+        topicxml.tag = "section"
+
+    # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
+    for xref in topicxml.iter("xref"):
+        if 'linkend' in xref.attrib:
+            linkend = xref.attrib['linkend']
+            if linkend is not None and linkend not in xrefs:
+                xrefs.append(linkend)
+
+    return title, id, xrefs
+
 
 '''
 Create a topic.
@@ -160,110 +225,144 @@ Create a topic.
 
 
 topicxml        - The topic xml object.
-customtitle     - Defines a custom title for the topic. If set to none, use the content in the first child <title> tag.
-                  This parameter is used to give titles to topics without a <title> tag (e.g. Author Group topics).
+title           - The topics title.
 dryrun          - Simulate topic creation but don't actually create the topic. Used for testing purposes.
 h               - HTTP object for interacting with the REST API.
 tags            - Tag entities to assign to the topic. Must be a JSON object using the standard Pressgang entity assignment format.
-changetosection - Change the topic's root tag to <section>. Used for all topics EXCEPT Author Group and Revision History.
 '''
-def createtopic(topicxml, customtitle, dryrun, h, tags, changetosection):
-  id = []
 
-  # Define the topic title
-  if customtitle is None:
-    topic_title = topicxml.find("title")
-    title = xmltostring(topic_title)
-  else:
-    title = customtitle
 
-  # Does the topic have any id attribute? If so, record them in case another topic xrefs it.
-  if "id" in topicxml.attrib: id.append(topicxml.attrib["id"])
-  all_elements = topicxml.findall("*")
-  for find_id in all_elements:
-    if "id" in find_id.attrib: id.append(find_id.attrib['id'])
-  if len(id) == 0: id.append("None")
-
-  # Fix the structure of <part> topics containing <partintro> so that they can be properly converted to a format that Pressgang can consume.
-  if topicxml.tag == "part" and topicxml.find("partintro") is not None:
-    topicxml = topicxml.find("partintro")
-    topicxml.insert(0, topic_title)
-
-  # If required, change the root tag to <section>
-  if changetosection is True:
-    topicxml.tag = "section"
-
-  # Create the topic (unless dryrun is enabled)
-  if dryrun is not True:
-    sendobj = {'title': title, 'description': title, 'xml': reencode(tostring(topicxml)), 'locale': 'en-US', 'tags': tags, 'configuredParameters': [ 'title','description','xml','locale','tags']};
-    result = json.dumps(sendobj, indent=2)
-    resp, content = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/create/json?message=Initial+Topic+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
-    if resp['status'] == '200':
-      topicid = json.loads(content)['id']
+def createtopic(topicxml, title, dryrun, h, tags):
+    # Create the topic (unless dryrun is enabled)
+    if dryrun is not True:
+        sendobj = {'title': title, 'description': title, 'xml': reencode(tostring(topicxml)), 'locale': 'en-US',
+                   'tags': tags, 'configuredParameters': ['title', 'description', 'xml', 'locale', 'tags']};
+        result = json.dumps(sendobj, indent=2)
+        resp, content = h.request(
+            'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/createormatch/json?message=Initial+Topic+Creation&flag=2&userId=89',
+            method="POST", body=result, headers={'Content-Type': 'application/json'})
+        if resp['status'] == '200':
+            topicid = json.loads(content)['topic']['id']
+            matchedExistingTopic = json.loads(content)['matchedExistingTopic']
+        else:
+            print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
+            exit()
     else:
-      print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
-      exit ()
-  else:
-    topicid = "xxxxx"
+        topicid = "xxxxx"
 
-  # Return the topic ID and the topic title. Also return the list of ids in the topic for the xref conversion.
-  return topicid, title, id
+    # Return the topic ID and the topic title. Also return the list of ids in the topic for the xref conversion.
+    return topicid, matchedExistingTopic
 
 # Retrieve a topic from Pressgang using the topic ID number.
 def gettopic(topicid, h):
-  resp, content = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/get/json/' + str(topicid) + '/', method="GET");
-  if resp['status'] == '200':
-    obj = json.loads(content)
-    xml = obj['xml']
-  else:
-    print "Error: Invalid topic ID or faulty connection to SkyNet"
-    exit ()
-  return xml
+    resp, content = h.request(
+        'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/get/json/' + str(topicid) + '/', method="GET");
+    if resp['status'] == '200':
+        obj = json.loads(content)
+        xml = obj['xml']
+    else:
+        print "Error: Invalid topic ID or faulty connection to SkyNet"
+        exit()
+    return xml
 
 # Update a topic from Pressgang using the topic ID number and XML string.
 def puttopic(topicid, xml, h):
-  sendobj = {'id': topicid, 'xml': xml, 'configuredParameters': [ 'xml']}
-  result = json.dumps(sendobj, indent=2)
-  putresp, putcontent = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/update/json/', method="POST", body=result, headers={'content-type':'application/json'})
-  if putresp['status'] == '200':
-    message = "Topic " + str(topicid) + " updated"
-  else:
-    message = "Error "+putresp['status']
-  return message
+    sendobj = {'id': topicid, 'xml': xml, 'configuredParameters': ['xml']}
+    result = json.dumps(sendobj, indent=2)
+    putresp, putcontent = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/topic/update/json/',
+                                    method="POST", body=result, headers={'content-type': 'application/json'})
+    if putresp['status'] == '200':
+        message = "Topic " + str(topicid) + " updated"
+    else:
+        message = "Error " + putresp['status']
+    return message
 
 # Upload all images in a book
-def uploadimages (xml, h, logfile):
-  imagearray = {}
-  images = xml.xpath("//@fileref")
-  images = set(images)
+def uploadimages(xml, h, logfile):
+    imagearray = {}
+    images = xml.xpath("//@fileref")
+    images = set(images)
 
-  total_progress = len(images)
-  print "Uploading " + str(total_progress) + " images..."
-  pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress + 1).start()
-  current_progress = 1
-  for image in images:
-    try:
-      file = open("en-US/" + image, "rb")
-    except:
-      logentry (logfile, "File not found: " + image)
-    else:
-      logentry (logfile, "Uploading " + str(image) )
-      encoded_string = base64.b64encode(file.read())
-      sendobj = {"description": image, "languageImages_OTM": {"items": [ { "item":{ "imageData": encoded_string, "locale":"en-US", "filename":image, "configuredParameters":[ "locale", "imageData", "filename" ], "expand": None, "logDetails": None }, "state": 1 } ], "size": None, "expand": None,          "startExpandIndex": None, "endExpandIndex": None }, "configuredParameters": [ "description", "languageImages" ] }
-      result = json.dumps(sendobj, indent=2)
-      resp, content = h.request('http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/image/create/json?message=Initial+Image+Creation&flag=2&userId=89', method="POST", body=result, headers={'Content-Type':'application/json'})
-      if resp['status'] == '200':
-        imageid = json.loads(content)['id']
-        imagearray[image] = imageid
-        logentry (logfile, "Uploaded " + str(image) + " as image " + str(imageid) )
-      else:
-        print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
-        exit ()
-    current_progress += 1
-    pbar.update(current_progress)
-  pbar.finish()
-  parser = etree.XMLParser(resolve_entities = False, dtd_validation = False, load_dtd = True)
-  return imagearray
+    total_progress = len(images)
+    print "Uploading " + str(total_progress) + " images..."
+    pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress + 1).start()
+    current_progress = 1
+    for image in images:
+        try:
+            file = open("en-US/" + image, "rb")
+        except:
+            logentry(logfile, "File not found: " + image)
+        else:
+            logentry(logfile, "Uploading " + str(image))
+            encoded_string = base64.b64encode(file.read())
+            sendobj = {"description": image, "languageImages_OTM": {"items": [{"item": {"imageData": encoded_string,
+                                                                                        "locale": "en-US",
+                                                                                        "filename": image,
+                                                                                        "configuredParameters": [
+                                                                                            "locale",
+                                                                                            "imageData",
+                                                                                            "filename"],
+                                                                                        "expand": None,
+                                                                                        "logDetails": None},
+                                                                               "state": 1}],
+                                                                    "size": None,
+                                                                    "expand": None,
+                                                                    "startExpandIndex": None,
+                                                                    "endExpandIndex": None},
+                       "configuredParameters": ["description", "languageImages"]}
+            result = json.dumps(sendobj, indent=2)
+            resp, content = h.request(
+                'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/image/create/json?message=Initial+Image+Creation&flag=2&userId=89',
+                method="POST", body=result, headers={'Content-Type': 'application/json'})
+            if resp['status'] == '200':
+                imageid = json.loads(content)['id']
+                imagearray[image] = imageid
+                logentry(logfile, "Uploaded " + str(image) + " as image " + str(imageid))
+            else:
+                print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
+                exit()
+        current_progress += 1
+        pbar.update(current_progress)
+    pbar.finish()
+    parser = etree.XMLParser(resolve_entities=False, dtd_validation=False, load_dtd=True)
+    return imagearray
+
+'''
+    Find those topics with unprocessed xrefs that can be, but have not yet been, resolved to
+    other topics. Keep in mind that the values in xrefs_dict might point to some element
+    inside a topic (like a table or an image). This is not ideal, but it is not forbidden either.
+    We are just interested in those topics that have xrefs directly to other topics.
+'''
+def topicsToProcess():
+    return {k: v for k, v in xrefs_dict.iteritems() if len(set(v).intersection(set(id_dict.values()))) !=
+        len(set(processedxrefs_dict[k]).intersection(set(id_dict.values())))};
+
+'''
+    Find those topics that have been saved, and therefor have a pressgang topic id to update the xref refernce to
+'''
+def processedTopics():
+    return {k: v for k, v in id_dict.iteritems() if k in pressgangid_dict.keys()}
+
+
+'''
+    This method returns any topics that can be saved to the database because they have no xrefs, or have
+    none left to be resolved
+'''
+def topicsThatCanBeSaved():
+    # find those topics where all xrefs to other topics have been processed (or no xrefs existed
+    # in the first place)
+    return {k: v for k, v in topicxml_dict.iteritems() if len(set(xrefs_dict[k]).intersection(set(id_dict.values()))) ==
+        len(set(processedxrefs_dict[k]).intersection(set(id_dict.values()))) and k not in pressgangid_dict.keys()};
+
+'''
+    This method will save any topics that don't have any xrefs to be changed into the comment injections
+'''
+def saveAnyUnsavedTopicsWithoutXrefs():
+    for topicid, topicdetails in topicsThatCanBeSaved().items():
+        pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
+        pressgangid_dict[topicid] = pressgangid
+        logentry(logfile, ("Matched" if matched_existing else "Created") + " topic " + str(pressgangid))
+        pbar.update(len(pressgangid_dict))
 
 ### MAIN FUNCTION
 
@@ -272,13 +371,18 @@ def uploadimages (xml, h, logfile):
 dryrun = False
 no_spec_create = False
 bookname = None
-properties = etree.XMLParser(load_dtd = True, resolve_entities = True)
+properties = etree.XMLParser(load_dtd=True, resolve_entities=True)
 cspec = []
 id_dict = {}
+xrefs_dict = {}
+processedxrefs_dict = {}
+pressgangid_dict = {}
+topicxml_dict = {}
 imagearray = {}
 topicid_list = []
 progress_log = []
 test_topicid = 1
+matchedTopics = 0
 booktypes = ["book", "article"]
 sectiontypes = ["part", "chapter", "appendix", "section"]
 doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
@@ -312,57 +416,58 @@ shell = args.pop(0)
 
 # Display help if no book_name
 if len(args) < 1:
-  print usage
-  exit ()
+    print usage
+    exit()
 
 # check args
 while len(args) > 0:
-  if args[0] == "--help" or args[0] == "-h":
-    print usage
-    exit ()
-  elif args[0] == "--test-server":
-    args.pop(0)
-    pressgang_host = "skynet-dev.usersys.redhat.com"
-  elif args[0] == "--no-spec-create":
-    args.pop(0)
-    no_spec_create = True
-  else:
-    # set the filename
-    bookname = args.pop(0)
+    if args[0] == "--help" or args[0] == "-h":
+        print usage
+        exit()
+    elif args[0] == "--test-server":
+        args.pop(0)
+        pressgang_host = "skynet-dev.usersys.redhat.com"
+    elif args[0] == "--no-spec-create":
+        args.pop(0)
+        no_spec_create = True
+    else:
+        # set the filename
+        bookname = args.pop(0)
 
 print "Performing migration to " + pressgang_host
 
 if bookname is None:
     print usage
-    exit ()
+    exit()
 
 try:
-   with open('en-US/' + bookname + ".xml"): pass
+    with open('en-US/' + bookname + ".xml"):
+        pass
 except IOError:
-   print 'Error: Book not found. Please check the book name and try again.'
-   exit ()
+    print 'Error: Book not found. Please check the book name and try again.'
+    exit()
 
 pressgang_path = "./Pressgang/"
 if os.path.exists(pressgang_path) is False:
-  os.mkdir("Pressgang")
+    os.mkdir("Pressgang")
 else:
-  filelist = os.listdir(pressgang_path)
-  for filename in filelist:
-    if os.path.isdir(pressgang_path+"/"+filename):
-      # delete folder
-      shutil.rmtree(pressgang_path+"/"+filename)
-    else:
-      # delete file
-      os.remove(pressgang_path+"/"+filename)
+    filelist = os.listdir(pressgang_path)
+    for filename in filelist:
+        if os.path.isdir(pressgang_path + "/" + filename):
+            # delete folder
+            shutil.rmtree(pressgang_path + "/" + filename)
+        else:
+            # delete file
+            os.remove(pressgang_path + "/" + filename)
 logfile = pressgang_path + "output.log"
 
-logentry (logfile, "Starting " + bookname + " migration to Pressgang CCMS server: " + pressgang_host)
+logentry(logfile, "Starting " + bookname + " migration to Pressgang CCMS server: " + pressgang_host)
 
 # Get the Book_Info.xml and publican.cfg
 print "Extracting settings from Book_Info.xml and publican.cfg..."
-logentry (logfile, "Extracting settings from Book_Info.xml and publican.cfg started")
-cspec.extend (getbookinfo())
-logentry (logfile, "Extracting settings from Book_Info.xml and publican.cfg completed")
+logentry(logfile, "Extracting settings from Book_Info.xml and publican.cfg started")
+cspec.extend(getbookinfo())
+logentry(logfile, "Extracting settings from Book_Info.xml and publican.cfg completed")
 
 # Parse the main book file into an xml etree
 tree = loadxml('en-US/' + bookname + ".xml", properties)
@@ -370,138 +475,173 @@ book = tree.getroot()
 
 # Remove the common content
 for xiinclude in book:
-  if "include" in str(xiinclude.tag) and (xiinclude.attrib['href'] == "Book_Info.xml" or xiinclude.attrib['href'] == "Article_Info.xml" or xiinclude.attrib['href'] == "Preface.xml" or xiinclude.attrib['href'] == "Revision_History.xml"):
-    book.remove(xiinclude)
+    if "include" in str(xiinclude.tag) and (
+                        xiinclude.attrib['href'] == "Book_Info.xml" or xiinclude.attrib['href'] == "Article_Info.xml" or
+                    xiinclude.attrib['href'] == "Preface.xml" or xiinclude.attrib['href'] == "Revision_History.xml"):
+        book.remove(xiinclude)
 
 # Build a full xml tree of the book using the ix includes
 print "Generating complete book xml with xincludes..."
-logentry (logfile, "Generating complete book xml with xincludes started")
+logentry(logfile, "Generating complete book xml with xincludes started")
 xixml(tree)
-logentry (logfile, "Generating complete book xml with xincludes completed")
+logentry(logfile, "Generating complete book xml with xincludes completed")
 
 # Upload images
-logentry (logfile, "Image upload started")
-imagearray = uploadimages (book, h, logfile)
-logentry (logfile, "Image upload complete")
+logentry(logfile, "Image upload started")
+#imagearray = uploadimages(book, h, logfile)
+logentry(logfile, "Image upload complete")
 
 # Calculate total topics
 total_progress = 0
 for section in book:
-  if section.tag in sectiontypes:
-    subsections = section.iter(sectiontypes)
-    sectionlist = []
-    for subsection in subsections:
-      sectionlist.append(subsection)
-    for sectionlistitem in sectionlist:
-      total_progress += 1
+    if section.tag in sectiontypes:
+        subsections = section.iter(sectiontypes)
+        sectionlist = []
+        for subsection in subsections:
+            sectionlist.append(subsection)
+        for sectionlistitem in sectionlist:
+            total_progress += 1
 
 # Create the topics and cspec tree
 print "Creating " + str(total_progress) + " topics..."
-logentry (logfile, "Topic creation started")
+logentry(logfile, "Topic creation started")
 pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress).start()
 current_progress = 0
 for section in book:
-  if section.tag in sectiontypes:
-    subsections = section.iter(sectiontypes)
-    sectionlist = []
-    for subsection in subsections:
-      sectionlist.append(subsection)
-    for sectionlistitem in sectionlist:
-      checksection = copy.deepcopy(sectionlistitem)
-      subsectionexists = False
-      for check in checksection:
-        if check.tag in sectiontypes:
-          checksection.remove(check)
-          subsectionexists = True
-      if subsectionexists is False and checksection.tag == "section":
-        subsectiontitle = ""
-      else:
-        subsectiontitle = sectionlistitem.tag.capitalize() + ": "
-      topicid, title, id = createtopic(checksection, None, dryrun, h, None, True)
-      logentry (logfile, "Created topic " + str(topicid) + " - " + title)
-      current_progress += 1
-      pbar.update(current_progress)
-      topicid_list.append(topicid)
-      id_dict[topicid] = id
-      str_topicid = " [" + str(topicid) + "]"
-      cspec.append (("  " * (depth(sectionlistitem) - 2)) + subsectiontitle + title + str_topicid )
+    if section.tag in sectiontypes:
+        subsections = section.iter(sectiontypes)
+        sectionlist = []
+        for subsection in subsections:
+            sectionlist.append(subsection)
+        for sectionlistitem in sectionlist:
+            checksection = copy.deepcopy(sectionlistitem)
+            subsectionexists = False
+            for check in checksection:
+                if check.tag in sectiontypes:
+                    checksection.remove(check)
+                    subsectionexists = True
+            if subsectionexists is False and checksection.tag == "section":
+                subsectiontitle = ""
+            else:
+                subsectiontitle = sectionlistitem.tag.capitalize() + ": "
+
+            title, elementId, xrefs = processtopic(checksection, None, True)
+
+            # The temporary id of the topic is its line number in the spec
+            topicid = len(cspec)
+
+            topicid_list.append(topicid)
+            id_dict[topicid] = elementId
+            xrefs_dict[topicid] = xrefs
+            processedxrefs_dict[topicid] = []
+            topicxml_dict[topicid] = {'title': title, 'xml': checksection}
+            #str_topicid = " [" + str(topicid) + "]"
+            cspec.append(("  " * (depth(sectionlistitem) - 2)) + subsectiontitle + title) # + str_topicid )
+
+            current_progress += 1
+            pbar.update(current_progress)
+
 pbar.finish()
-logentry (logfile, "Topic creation complete")
+logentry(logfile, "Topic creation complete. " + str(matchedTopics) + " topics were reused.")
 
 # Do a passthrough all topics and replace xrefs and images
 print "Fixing xrefs and images..."
-logentry (logfile, "xref and image fix started")
+logentry(logfile, "xref and image fix started")
 total_progress = len(topicid_list)
 pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress).start()
 current_progress = 0
-for topicid in topicid_list:
-  topic = gettopic(topicid, h)
-  parser = etree.XMLParser(resolve_entities = False, dtd_validation = False, load_dtd = True)
 
-  #
-  # XREF CONVERSION
-  # This was the toughest part of the whole script: converting the xrefs into Pressgang injections.
-  # The problem was that the injection code is an XML comment, and replacing an xref in a comment resulted
-  # in a comment-within-a-comment, which is illegal syntax. I tried all manner of regex combos having no luck.
-  # Then I stumbled upon a slick solution:
-  #
-  # Convert the topic into an etree XML object
+# create the initial batch of topics without any xrefs to other topics
+# we will use these topics to recursively resolve xrefs in other topics
+saveAnyUnsavedTopicsWithoutXrefs()
 
-  xml = fromstring(doctype + topic, parser)
-  # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
-  for xref in xml.iter("xref"):
-    xref.tag = "xref_change"
-  # Convert the etree object back to a string
-  topic = tostring(xml)
-  # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
-  for xref_topicid, xref_ids in id_dict.items():
-    for xref_id in xref_ids:
-      #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
-      regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
-      if regexp.search(topic) is not None:
-        topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*/>','<!-- Inject: ' + str(xref_topicid) + ' -->',topic)
-        logentry (logfile, "Topic " + str(topicid) + ": Fixing xref for " + str(xref_id) + " - Linking to topic " + str(xref_topicid))
-  # Finally replace any leftover xref_change tags with xrefs
-  topic = re.sub('xref_change','xref',topic)
+while True:
 
-  # IMAGE CONVERSION
-  #
-  # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
+    # we need to know if this iteration resolved any more xrefs
+    resolvedXrefs = False
+    processedTopics = processedTopics()
 
-  filenames = re.compile(r'images/.*\.png')
-  images = filenames.findall(topic)
-  if len(images) != 0:
-    for image in images:
-      try:
-        topic = re.sub(image, "images/" + str(imagearray[image]) + ".png",topic)
-      except:
-        pass
-      else:
-        logentry (logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(imagearray[image]) + ".png")
+    for topicid in topicsToProcess().keys():
 
-  # UPDATE THE TOPIC
-  #
-  # Make sure all the changes get saved back to Pressgang
+        # XREF CONVERSION
+        # This was the toughest part of the whole script: converting the xrefs into Pressgang injections.
+        # The problem was that the injection code is an XML comment, and replacing an xref in a comment resulted
+        # in a comment-within-a-comment, which is illegal syntax. I tried all manner of regex combos having no luck.
+        # Then I stumbled upon a slick solution:
+        #
+        # Convert the topic into an etree XML object
 
-  logentry (logfile, "Topic " + str(topicid) + ": Updating")
-  puttopic(topicid, topic, h)
-  logentry (logfile, "Topic " + str(topicid) + ": Updated")
+        xml = topicxml_dict[topicid];
+        # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
+        for xref in xml['xml'].iter("xref"):
+            if 'linkend' in xref.attrib and xref.attrib['linkend'] in processedTopics.values():
+                xref.tag = "xref_change"
+        # Convert the etree object back to a string
+        topic = tostring(xml['xml'])
+        # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
+        for xref_topicid, xref_id in processedTopics.items():
+            #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
+            regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
+            if regexp.search(topic) is not None:
+                resolvedXrefs = True
 
-  current_progress += 1
-  pbar.update(current_progress)
+                topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*/>',
+                               '<!-- Inject: ' + str(pressgangid_dict[xref_topicid]) + ' -->', topic)
+
+                processedxrefs_dict[topicid].append(str(xref_id))
+
+                logentry(logfile,
+                         "Topic " + str(topicid) + ": Fixing xref for " + str(
+                             xref_id) + " - Linking to topic " + str(
+                             pressgangid_dict[xref_topicid]))
+        # Finally replace any leftover xref_change tags with xrefs
+        topic = re.sub('xref_change', 'xref', topic)
+
+        # IMAGE CONVERSION
+        #
+        # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
+
+        filenames = re.compile(r'images/.*\.png')
+        images = filenames.findall(topic)
+        if len(images) != 0:
+            for image in images:
+                try:
+                    topic = re.sub(image, "images/" + str(imagearray[image]) + ".png", topic)
+                except:
+                    pass
+                else:
+                    logentry(logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(
+                        imagearray[image]) + ".png")
+
+    # save any topics that had all their xrefs resolved
+    saveAnyUnsavedTopicsWithoutXrefs()
+
+    # If this loop did not resolve any xrefs, it is because they are all resolved,
+    # or there is a circular dependency that we are not going to deal with
+    if not resolvedXrefs: break
+
 pbar.finish()
-logentry (logfile, "xref and image fix complete")
+logentry(logfile, "xref and image fix complete")
+
+print str(len(id_dict) - len(pressgangid_dict)) + " topics not processed"
+
+# Now that we have pressgang topic ids to go with the topics found in the book,
+# update the content spec lines
+for topicid in id_dict:
+    if topicid in pressgangid_dict.keys():
+        cspec[topicid] += " [" + str(pressgangid_dict[topicid]) + "]"
 
 # Save the content spec in a directory (./Pressgang/)
-print "Saving file: "+ pressgang_path + bookname + ".cspec"
+print "Saving file: " + pressgang_path + bookname + ".cspec"
 with open(pressgang_path + "/" + bookname + ".cspec", 'w') as file:
-  for line in cspec:
-    file.write(line + '\n')
+    for line in cspec:
+        file.write(line + '\n')
 
-logentry (logfile, "Book migration to Pressgang CCMS complete")
+logentry(logfile, "Book migration to Pressgang CCMS complete")
 
 if no_spec_create is False:
-  print "Creating content spec on the Pressgang server..."
-  os.system("cd " + pressgang_path + " ; csprocessor create -H http://" + pressgang_host + ":8080/TopicIndex " + bookname + ".cspec")
-  os.system("cd .. ")
+    print "Creating content spec on the Pressgang server..."
+    os.system(
+        "cd " + pressgang_path + " ; csprocessor create -H http://" + pressgang_host + ":8080/pressgang-ccms/rest " + bookname + ".cspec")
+    os.system("cd .. ")
 exit()

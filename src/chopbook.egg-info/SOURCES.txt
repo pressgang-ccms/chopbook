@@ -1,0 +1,7 @@
+README
+setup.py
+src/chopbook
+src/chopbook.egg-info/PKG-INFO
+src/chopbook.egg-info/SOURCES.txt
+src/chopbook.egg-info/dependency_links.txt
+src/chopbook.egg-info/top_level.txt

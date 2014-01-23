@@ -722,7 +722,8 @@ while True:
 
         if len(unsavedTopicsToProcess()) == 0:
             print "The code is willing but the logic is weak."
-            print "We should always have an unsaved topic to break the deadlock, so something went wrong"
+            print "We should always have an unsaved topic to break the deadlock, so something went wrong."
+            print "Have a guru meditation and the solution will make itself known..."
             exit()
 
         # At this point we have topics with circular references. Here we display some info on the circular references

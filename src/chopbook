@@ -440,10 +440,9 @@ def displayOutgoingLinks(starttopicid, topicid, visitedtopics, indent):
     and doesn't change the xml that will be saved or used in the book
 '''
 def normalise_whitespace(xml):
-    xml = xml.replace("\t", " ");
-    xml = xml.replace("\n", " ");
-    while xml.find("  ") != -1:
-        xml = xml.replace("  ", " ")
+    xml = xml.replace("\t", "");
+    xml = xml.replace("\n", "");
+    xml = xml.replace(" ", "");
     return xml
 
 '''
@@ -455,8 +454,8 @@ def normalise_whitespace(xml):
 '''
 def normalise_entities(xml):
     entity_count = 0
-    while re.match(entity_regex, xml) is not None:
-        xml = xml.replace(re.match(entity_regex, xml).group(), "ENTITY" + str(entity_count))
+    while re.search(entity_regex, xml) is not None:
+        xml = xml.replace(re.search(entity_regex, xml).group(), "ENTITY" + str(entity_count))
         entity_count += 1
 
     return xml
@@ -650,6 +649,7 @@ saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 # until any of the other topics are uploaded, and the process breaks.
 
 while True:
+
     while True:
 
         # we need to know if this iteration resolved any more xrefs
@@ -676,11 +676,11 @@ while True:
             # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
             for xref_topicid, xref_id in availableToResolve.items():
                 #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
-                regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
+                regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*?/>')
                 if regexp.search(topic) is not None:
                     resolvedXrefs = True
 
-                    topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*/>',
+                    topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*?/>',
                                    '<!-- Inject: ' + str(pressgangid_dict[xref_topicid]) + ' -->', topic)
 
                     processedxrefs_dict[topicid].append(str(xref_id))
@@ -719,6 +719,12 @@ while True:
         if not resolvedXrefs: break
 
     if len(topicsToProcess()) != 0:
+
+        if len(unsavedTopicsToProcess()) == 0:
+            print "The code is willing but the logic is weak."
+            print "We should always have an unsaved topic to break the deadlock, so something went wrong"
+            exit()
+
         # At this point we have topics with circular references. Here we display some info on the circular references
         for topicid, xrefs in topicsToProcess().items():
             print ""
@@ -765,8 +771,9 @@ while True:
                 break
 
         if matchingtopic is None:
-            topicid, matchedExistingTopic = createtopic(first_unsaved_topic['xml'], first_unsaved_topic['title'], dryrun, h, None)
-            pressgangid_dict[first_unsaved_topic_id] = topicid
+            pressgangid, matchedExistingTopic = createtopic(first_unsaved_topic['xml'], first_unsaved_topic['title'], dryrun, h, None)
+            pressgangid_dict[first_unsaved_topic_id] = pressgangid
+            logentry(logfile, "Created topic " + str(pressgangid))
         else:
             pressgangid_dict[first_unsaved_topic_id] = matchingtopic['item']['id']
             # We rely on the fact that the saved topic has already dealt with xrefs

@@ -350,12 +350,12 @@ def uploadimages(xml, h, logfile):
                        "configuredParameters": ["description", "languageImages"]}
             result = json.dumps(sendobj, indent=2)
             resp, content = h.request(
-                'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/image/create/json?message=Initial+Image+Creation&flag=2&userId=89',
+                'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/image/createormatch/json?message=Initial+Image+Creation&flag=2&userId=89',
                 method="POST", body=result, headers={'Content-Type': 'application/json'})
             if resp['status'] == '200':
-                imageid = json.loads(content)['id']
+                imageid = json.loads(content)['image']['id']
                 imagearray[image] = imageid
-                logentry(logfile, "Uploaded " + str(image) + " as image " + str(imageid))
+                logentry(logfile, ("Matched " if json.loads(content)['matchedExistingImage'] else "Created ") + str(image) + " as image " + str(imageid))
             else:
                 print "Error: Bad Connection to Pressgang CCMS (Error code: " + resp['status'] + ")"
                 exit()
@@ -436,7 +436,7 @@ def displayOutgoingLinks(starttopicid, topicid, visitedtopics, indent):
             displayOutgoingLinks(starttopicid, target_topicid, visitedtopics, indent + 1)
 
 '''
-    To compare the xml of two topics we need to remove any extra whitespace. This is just for comparasion only,
+    To compare the xml of two topics we need to remove any extra whitespace. This is just for comparison only,
     and doesn't change the xml that will be saved or used in the book
 '''
 def normalise_whitespace(xml):
@@ -503,6 +503,9 @@ while len(args) > 0:
     elif args[0] == "--test-server":
         args.pop(0)
         pressgang_host = "skynet-dev.usersys.redhat.com"
+    elif args[0] == "--local-server":
+        args.pop(0)
+        pressgang_host = "localhost"
     elif args[0] == "--no-spec-create":
         args.pop(0)
         no_spec_create = True
@@ -564,7 +567,7 @@ logentry(logfile, "Generating complete book xml with xincludes completed")
 
 # Upload images
 logentry(logfile, "Image upload started")
-#imagearray = uploadimages(book, h, logfile)
+imagearray = uploadimages(book, h, logfile)
 logentry(logfile, "Image upload complete")
 
 # Calculate total topics

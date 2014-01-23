@@ -21,6 +21,31 @@ from lxml.etree import fromstring
 from progressbar import ProgressBar, Bar, Percentage
 import httplib2
 
+# INITIAL DEFINTIONS
+
+dryrun = False
+no_spec_create = False
+bookname = None
+properties = etree.XMLParser(load_dtd=True, resolve_entities=True)
+cspec = []
+id_dict = {}
+xrefs_dict = {}
+processedxrefs_dict = {}
+pressgangid_dict = {}
+topicxml_dict = {}
+imagearray = {}
+topicid_list = []
+progress_log = []
+test_topicid = 1
+matchedTopics = 0
+booktypes = ["book", "article"]
+sectiontypes = ["part", "chapter", "appendix", "section"]
+doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
+pressgang_host = "skynet.usersys.redhat.com"
+inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s* -->'
+xref_regex = r'<\s*xref\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
+entity_regex = r'&.*?;'
+
 ### FUNCTIONS
 
 ## Basic Housekeeping Functions
@@ -253,6 +278,9 @@ def createtopic(topicxml, title, dryrun, h, tags):
     # Return the topic ID and the topic title. Also return the list of ids in the topic for the xref conversion.
     return topicid, matchedExistingTopic
 
+'''
+    Query the server for any topic that match the supplied XML by 90%
+'''
 def get_similar_topics(topicxml, h):
     resp, content = h.request(
         'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/minhashsimilar/get/json?threshold=0.9&expand=%7B%22branches%22%3A%5B%7B%22trunk%22%3A%7B%22name%22%3A%20%22topics%22%7D%7D%5D%7D',
@@ -334,7 +362,6 @@ def uploadimages(xml, h, logfile):
         current_progress += 1
         pbar.update(current_progress)
     pbar.finish()
-    parser = etree.XMLParser(resolve_entities=False, dtd_validation=False, load_dtd=True)
     return imagearray
 
 '''
@@ -344,10 +371,10 @@ def uploadimages(xml, h, logfile):
     We are just interested in those topics that have xrefs directly to other topics.
 '''
 def topicsToProcess():
-    # Return a dict with the keys and values in xrefs_dict where the number of xrefs listed in the value
-    # that match the xrefs of sections (which is to say, the intersection between the set of xrefs found
+    # Return a dict with the keys and values in xrefs_dict where the number of xrefs listed in the xrefs_dict value
+    # that match the xrefs of sections, id_dict.values(), (which is to say, the intersection between the set of xrefs found
     # in a topic and the set of xrefs assigned to sections) is not the same as the number of processed
-    # xrefs that match the xrefs of sections.
+    # xrefs, processedxrefs_dict[topicid], that match the xrefs of sections, id_dict.values().
 
     # Or, in other words, have all the xrefs in a topic that point to the ids assigned to sections been
     # processed or not? We make the distinction between xrefs to sections (which can be replaced by an
@@ -355,6 +382,11 @@ def topicsToProcess():
 
     return {k: v for k, v in xrefs_dict.iteritems() if len(set(v).intersection(set(id_dict.values()))) !=
         len(set(processedxrefs_dict[k]).intersection(set(id_dict.values())))};
+
+def unsavedTopicsToProcess():
+    return {k: v for k, v in xrefs_dict.iteritems() if len(set(v).intersection(set(id_dict.values()))) !=
+        len(set(processedxrefs_dict[k]).intersection(set(id_dict.values()))) and
+        k not in pressgangid_dict.keys()};
 
 '''
     Find those topics that have been saved, and therefor have a pressgang topic id to update the xref refernce to
@@ -378,8 +410,12 @@ def topicsThatCanBeSaved():
 '''
 def saveAnyUnsavedTopicsWithoutUnresolvedXrefs():
     for topicid, topicdetails in topicsThatCanBeSaved().items():
-        pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
-        pressgangid_dict[topicid] = pressgangid
+        # When dealing with circular references we might find ourselves updating a saved topics
+        if (topicid in pressgangid_dict.keys()):
+            puttopic(pressgangid_dict[topicid], topicdetails['xml'])
+        else:
+            pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
+            pressgangid_dict[topicid] = pressgangid
         logentry(logfile, ("Matched" if matched_existing else "Created") + " topic " + str(pressgangid))
         pbar.update(len(pressgangid_dict))
 
@@ -399,31 +435,35 @@ def displayOutgoingLinks(starttopicid, topicid, visitedtopics, indent):
         if target_topicid not in visitedtopics:
             displayOutgoingLinks(starttopicid, target_topicid, visitedtopics, indent + 1)
 
+'''
+    To compare the xml of two topics we need to remove any extra whitespace. This is just for comparasion only,
+    and doesn't change the xml that will be saved or used in the book
+'''
+def normalise_whitespace(xml):
+    xml = xml.replace("\t", " ");
+    xml = xml.replace("\n", " ");
+    while xml.find("  ") != -1:
+        xml = xml.replace("  ", " ")
+    return xml
+
+'''
+    To compare the xml of two topics we need to normalise any entities that are used. The XML from the book being
+    imported will have entities like mdash resolved to &#8212;.
+
+    While we don't actually compare these conversions directly, we assume that if the same entity appears in the same
+    locations, they are equivalent
+'''
+def normalise_entities(xml):
+    entity_count = 0
+    while re.match(entity_regex, xml) is not None:
+        xml = xml.replace(re.match(entity_regex, xml).group(), "ENTITY" + str(entity_count))
+        entity_count += 1
+
+    return xml
+
 ### MAIN FUNCTION
 
-# INITIAL DEFINTIONS
 
-dryrun = False
-no_spec_create = False
-bookname = None
-properties = etree.XMLParser(load_dtd=True, resolve_entities=True)
-cspec = []
-id_dict = {}
-xrefs_dict = {}
-processedxrefs_dict = {}
-pressgangid_dict = {}
-topicxml_dict = {}
-imagearray = {}
-topicid_list = []
-progress_log = []
-test_topicid = 1
-matchedTopics = 0
-booktypes = ["book", "article"]
-sectiontypes = ["part", "chapter", "appendix", "section"]
-doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
-pressgang_host = "skynet.usersys.redhat.com"
-inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s* -->'
-xref_regex = r'<\s*xref\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
 
 # This variable contains the instructions in the user enters the wrong syntax
 usage = """Usage: chopbook [options] book_name
@@ -610,103 +650,135 @@ saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 # until any of the other topics are uploaded, and the process breaks.
 
 while True:
+    while True:
 
-    # we need to know if this iteration resolved any more xrefs
-    resolvedXrefs = False
-    availableToResolve = processedTopics()
+        # we need to know if this iteration resolved any more xrefs
+        resolvedXrefs = False
+        availableToResolve = processedTopics()
 
-    for topicid in topicsToProcess().keys():
+        for topicid in topicsToProcess().keys():
 
-        # XREF CONVERSION
-        # This was the toughest part of the whole script: converting the xrefs into Pressgang injections.
-        # The problem was that the injection code is an XML comment, and replacing an xref in a comment resulted
-        # in a comment-within-a-comment, which is illegal syntax. I tried all manner of regex combos having no luck.
-        # Then I stumbled upon a slick solution:
-        #
-        # Convert the topic into an etree XML object
+            # XREF CONVERSION
+            # This was the toughest part of the whole script: converting the xrefs into Pressgang injections.
+            # The problem was that the injection code is an XML comment, and replacing an xref in a comment resulted
+            # in a comment-within-a-comment, which is illegal syntax. I tried all manner of regex combos having no luck.
+            # Then I stumbled upon a slick solution:
+            #
+            # Convert the topic into an etree XML object
 
-        xml = topicxml_dict[topicid];
-        # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
-        for xref in xml['xml'].iter("xref"):
-            if 'linkend' in xref.attrib and xref.attrib['linkend'] in availableToResolve.values():
-                xref.tag = "xref_change"
-        # Convert the etree object back to a string
-        topic = tostring(xml['xml'])
-        # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
-        for xref_topicid, xref_id in availableToResolve.items():
-            #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
-            regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
-            if regexp.search(topic) is not None:
-                resolvedXrefs = True
+            xml = topicxml_dict[topicid];
+            # Iterate through the etree object and change "xref" tag labels to "xref_change". This skips over everything in comments.
+            for xref in xml['xml'].iter("xref"):
+                if 'linkend' in xref.attrib and xref.attrib['linkend'] in availableToResolve.values():
+                    xref.tag = "xref_change"
+            # Convert the etree object back to a string
+            topic = tostring(xml['xml'])
+            # Now it's just a matter of going through the topic, regex'ing the xref_change items, and changing them to the Pressgang injections.
+            for xref_topicid, xref_id in availableToResolve.items():
+                #logentry (logfile, "Topic " + str(topicid) + ": Checking for xref " + str(xref_id))
+                regexp = re.compile('<xref_change linkend="' + str(xref_id) + '".*/>')
+                if regexp.search(topic) is not None:
+                    resolvedXrefs = True
 
-                topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*/>',
-                               '<!-- Inject: ' + str(pressgangid_dict[xref_topicid]) + ' -->', topic)
+                    topic = re.sub('<xref_change linkend="' + str(xref_id) + '".*/>',
+                                   '<!-- Inject: ' + str(pressgangid_dict[xref_topicid]) + ' -->', topic)
 
-                processedxrefs_dict[topicid].append(str(xref_id))
+                    processedxrefs_dict[topicid].append(str(xref_id))
 
-                logentry(logfile,
-                         "Topic " + str(topicid) + ": Fixing xref for " + str(
-                             xref_id) + " - Linking to topic " + str(
-                             pressgangid_dict[xref_topicid]))
-        # Finally replace any leftover xref_change tags with xrefs
-        topic = re.sub('xref_change', 'xref', topic)
+                    logentry(logfile,
+                             "Topic " + str(topicid) + ": Fixing xref for " + str(
+                                 xref_id) + " - Linking to topic " + str(
+                                 pressgangid_dict[xref_topicid]))
+            # Finally replace any leftover xref_change tags with xrefs
+            topic = re.sub('xref_change', 'xref', topic)
 
-        # IMAGE CONVERSION
-        #
-        # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
+            # IMAGE CONVERSION
+            #
+            # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
 
-        filenames = re.compile(r'images/.*\.png')
-        images = filenames.findall(topic)
-        if len(images) != 0:
-            for image in images:
-                try:
-                    topic = re.sub(image, "images/" + str(imagearray[image]) + ".png", topic)
-                except:
-                    pass
-                else:
-                    logentry(logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(
-                        imagearray[image]) + ".png")
+            filenames = re.compile(r'images/.*\.png')
+            images = filenames.findall(topic)
+            if len(images) != 0:
+                for image in images:
+                    try:
+                        topic = re.sub(image, "images/" + str(imagearray[image]) + ".png", topic)
+                    except:
+                        pass
+                    else:
+                        logentry(logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(
+                            imagearray[image]) + ".png")
 
-        # Save the changes back
-        xml['xml'] = fromstring(topic)
+            # Save the changes back
+            xml['xml'] = fromstring(topic)
 
-    # save any topics that had all their xrefs resolved
-    saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
+        # save any topics that had all their xrefs resolved
+        saveAnyUnsavedTopicsWithoutUnresolvedXrefs()
 
-    # If this loop did not resolve any xrefs, it is because they are all resolved,
-    # or there is a circular dependency that we have to fix in the next step
-    if not resolvedXrefs: break
+        # If this loop did not resolve any xrefs, it is because they are all resolved,
+        # or there is a circular dependency that we have to fix in the next step
+        if not resolvedXrefs: break
 
-if len(topicsToProcess) != 0:
-    # At this point we have topics with circular references. Here we display some info on the circular references
-    for topicid, xrefs in topicsToProcess().items():
-        print ""
-        displayOutgoingLinks(topicid, topicid, [], 0)
+    if len(topicsToProcess()) != 0:
+        # At this point we have topics with circular references. Here we display some info on the circular references
+        for topicid, xrefs in topicsToProcess().items():
+            print ""
+            displayOutgoingLinks(topicid, topicid, [], 0)
 
-    # Dealing with circular references requires us to look for likely existing topics instead of topics that we can
-    # guarantee are duplicates.
+        # Dealing with circular references requires us to look for likely existing topics instead of topics that we can
+        # guarantee are duplicates.
 
-    # We start by getting any existing topics that are a close match to one topic that has a circular reference. Since this
-    # fuzzy matching depends only on the text in a topic, and ignores the xml elements themselves, we can ask for topics
-    # that have a high similarity and know that xrefs and comments don't affect the level similarity.
+        # We start by getting any existing topics that are a close match to one topic that has a circular reference. Since this
+        # fuzzy matching depends only on the text in a topic, and ignores the xml elements themselves, we can ask for topics
+        # that have a high similarity and know that xrefs and comments don't affect the level similarity.
 
-    matchingtopics = get_similar_topics()
-    matchingtopic = None
+        first_unsaved_topic_id = unsavedTopicsToProcess().iterkeys().next()
+        first_unsaved_topic = topicxml_dict[first_unsaved_topic_id]
+        first_unsaved_topic_xml = tostring(first_unsaved_topic['xml'])
 
-    for topic in matchingtopic['topics']:
+        matchingtopics = get_similar_topics(tostring(first_unsaved_topic['xml']), h)
+        matchingtopic = None
 
-        xml = topic['xml']
+        for topic in matchingtopics['items']:
 
-        # We then confirm that the two topics are the same with the exception of the xrefs or injections. For added accuracy
-        # we then also confirm that the outgoing links point to topics with the same content.
-        xref_count = 0
-        while re.search(xml, inject_regex) is not None:
-            re.sub(inject_regex, "<!-- Inject: " + str(xref_count) + " -->");
+            xml = topic['item']['xml']
+
+            # We then confirm that the two topics are the same with the exception of the xrefs or injections.
+            xref_count = 0
+            while re.search(inject_regex, xml) is not None:
+                xml = re.sub(inject_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", xml);
+                xref_count += 1
+
+            xref_count = 0
+            while re.search(xref_regex, first_unsaved_topic_xml) is not None:
+                if re.search(xref_regex, first_unsaved_topic_xml).group(2) in id_dict.values():
+                    first_unsaved_topic_xml = re.sub(inject_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", first_unsaved_topic_xml);
+                    xref_count += 1
+
+            # We need to normalise the documents to compare their equality. For the sake of convenience, this
+            # normalisation does not attempt to preserve the validity or structure of the xml, but rather
+            # consolidate differences that don't affect the equality of the documents.
+            topic_pretty_print = normalise_entities(normalise_whitespace(xml))
+            first_unsaved_topic_xml_pretty_print = normalise_entities(normalise_whitespace(first_unsaved_topic_xml))
+
+            if (topic_pretty_print == first_unsaved_topic_xml_pretty_print):
+                matchingtopic = topic['id']
+                break
+
+        if matchingtopic is None:
+            topicid, matchedExistingTopic = createtopic(first_unsaved_topic['xml'], first_unsaved_topic['title'], dryrun, h, None)
+            pressgangid_dict[first_unsaved_topic_id] = topicid
+        else:
+            pressgangid_dict[first_unsaved_topic_id] = matchingtopic['item']['id']
+            # We rely on the fact that the saved topic has already dealt with xrefs
+            xrefs_dict[first_unsaved_topic_id] = []
+            processedxrefs_dict[first_unsaved_topic_id] = []
 
 
-    # With one link in the circular reference chain broken, we start all over again. Breaking one link most likely allow
-    # all other topics in the circular reference to be resolved, but if not (maybe the topic that points to the one we
-    # resolved is part of two or more circular references) we'll hit this code again and break another link in the chain.
+        # With one link in the circular reference chain broken, we start all over again. Breaking one link most likely allow
+        # all other topics in the circular reference to be resolved, but if not (maybe the topic that points to the one we
+        # resolved is part of two or more circular references) we'll hit this code again and break another link in the chain.
+    else:
+        break
 
 pbar.finish()
 logentry(logfile, "xref and image fix complete")

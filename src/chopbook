@@ -118,8 +118,9 @@ def getbookinfo():
     if os.path.exists('en-US/Author_Group.xml'):
         authorgroup = etree.parse('en-US/Author_Group.xml', properties).getroot()
     elif bookinfo.find("corpauthor").text is not None:
-        authorgroup = bookinfo.find("corpauthor")
-    elif bookinfo.find("corpauthor").text is not None:
+        authorgroup = etree.Element("authorgroup")
+        authorgroup.append(bookinfo.find("corpauthor"))
+    elif bookinfo.find("authorgroup").text is not None:
         authorgroup = bookinfo.find("authorgroup")
 
     '''

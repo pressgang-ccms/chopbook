@@ -30,7 +30,9 @@ properties = etree.XMLParser(load_dtd=True, resolve_entities=True)
 cspec = []
 id_dict = {}
 xrefs_dict = {}
+containerids_dict = {}
 processedxrefs_dict = {}
+# A collection of temp ids to pressgang ids for those topics that have been saved
 pressgangid_dict = {}
 topicxml_dict = {}
 imagearray = {}
@@ -413,12 +415,8 @@ def topicsThatCanBeSaved():
 '''
 def saveAnyUnsavedTopicsWithoutUnresolvedXrefs():
     for topicid, topicdetails in topicsThatCanBeSaved().items():
-        # When dealing with circular references we might find ourselves updating a saved topics
-        if (topicid in pressgangid_dict.keys()):
-            puttopic(pressgangid_dict[topicid], topicdetails['xml'])
-        else:
-            pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
-            pressgangid_dict[topicid] = pressgangid
+        pressgangid, matched_existing = createtopic(topicdetails['xml'], topicdetails['title'], dryrun, h, None)
+        pressgangid_dict[topicid] = pressgangid
         logentry(logfile, ("Matched" if matched_existing else "Created") + " topic " + str(pressgangid))
         pbar.update(len(pressgangid_dict))
 
@@ -637,7 +635,7 @@ current_progress = 0
 # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
 for topicid, topicdetails in topicxml_dict.items():
     for imagedata in topicdetails['xml'].iter("imagedata"):
-        if 'fileref' in imagedata.attrib:
+        if 'fileref' in imagedata.attrib and imagedata.attrib['fileref'] in imagearray:
             imagedata.attrib['fileref'] = "images/" + str(imagearray[imagedata.attrib['fileref']]) + ".png";
 
 # When a topic is uploaded Pressgang can optionally match the contents of the topic to any existing topics
@@ -707,6 +705,11 @@ while True:
 
             # Save the changes back
             xml['xml'] = fromstring(topic)
+
+            # This is a special case where we have just resolved all the references in a topic
+            # that was saved unresolved when breaking a circular reference
+            if len(set(xrefs_dict[topicid]).intersection(set(id_dict.values()))) == len(set(processedxrefs_dict[topicid]).intersection(set(id_dict.values()))) and topicid in pressgangid_dict.keys():
+                puttopic(pressgangid_dict[topicid], tostring(xml['xml']), h)
 
         # save any topics that had all their xrefs resolved
         saveAnyUnsavedTopicsWithoutUnresolvedXrefs()

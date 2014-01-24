@@ -761,7 +761,7 @@ while True:
             xref_count = 0
             while re.search(xref_regex, first_unsaved_topic_xml) is not None:
                 if re.search(xref_regex, first_unsaved_topic_xml).group(2) in id_dict.values():
-                    first_unsaved_topic_xml = re.sub(inject_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", first_unsaved_topic_xml);
+                    first_unsaved_topic_xml = re.sub(xref_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", first_unsaved_topic_xml);
                     xref_count += 1
 
             # We need to normalise the documents to compare their equality. For the sake of convenience, this

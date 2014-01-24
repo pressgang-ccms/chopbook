@@ -45,6 +45,7 @@ pressgang_host = "skynet.usersys.redhat.com"
 inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s* -->'
 xref_regex = r'<\s*xref\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
 entity_regex = r'&.*?;'
+image_regex = r'images/.*\.png'
 
 ### FUNCTIONS
 
@@ -396,14 +397,15 @@ def processedTopics():
 
 
 '''
-    This method returns any topics that can be saved to the database because they have no xrefs, or have
+    This method returns any topics that can be saved to the database because they have no xrefs or images, or have
     none left to be resolved
 '''
 def topicsThatCanBeSaved():
     # find those topics where all xrefs to other topics have been processed (or no xrefs existed
     # in the first place)
     return {k: v for k, v in topicxml_dict.iteritems() if len(set(xrefs_dict[k]).intersection(set(id_dict.values()))) ==
-        len(set(processedxrefs_dict[k]).intersection(set(id_dict.values()))) and k not in pressgangid_dict.keys()};
+        len(set(processedxrefs_dict[k]).intersection(set(id_dict.values())))
+        and k not in pressgangid_dict.keys()};
 
 '''
     This method will save any topics that don't have any xrefs to be changed into the comment injections
@@ -630,6 +632,13 @@ total_progress = len(topicid_list)
 pbar = ProgressBar(widgets=[Percentage(), Bar()], maxval=total_progress).start()
 current_progress = 0
 
+# IMAGE CONVERSION
+# This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
+for topicid, topicdetails in topicxml_dict.items():
+    for imagedata in topicdetails['xml'].iter("imagedata"):
+        if 'fileref' in imagedata.attrib:
+            imagedata.attrib['fileref'] = "images/" + str(imagearray[imagedata.attrib['fileref']]) + ".png";
+
 # When a topic is uploaded Pressgang can optionally match the contents of the topic to any existing topics
 # to ensure that duplicate content is not created. This is useful when uploading different versions of
 # books that share a lot of contents.
@@ -695,22 +704,6 @@ while True:
             # Finally replace any leftover xref_change tags with xrefs
             topic = re.sub('xref_change', 'xref', topic)
 
-            # IMAGE CONVERSION
-            #
-            # This is pretty simple. Replace all image filenames with the Pressgang version ([image_id].png).
-
-            filenames = re.compile(r'images/.*\.png')
-            images = filenames.findall(topic)
-            if len(images) != 0:
-                for image in images:
-                    try:
-                        topic = re.sub(image, "images/" + str(imagearray[image]) + ".png", topic)
-                    except:
-                        pass
-                    else:
-                        logentry(logfile, "Topic " + str(topicid) + ": Changing image for " + image + " to images/" + str(
-                            imagearray[image]) + ".png")
-
             # Save the changes back
             xml['xml'] = fromstring(topic)
 
@@ -730,9 +723,9 @@ while True:
             exit()
 
         # At this point we have topics with circular references. Here we display some info on the circular references
-        for topicid, xrefs in topicsToProcess().items():
-            print ""
-            displayOutgoingLinks(topicid, topicid, [], 0)
+        #for topicid, xrefs in topicsToProcess().items():
+        #    print ""
+        #    displayOutgoingLinks(topicid, topicid, [], 0)
 
         # Dealing with circular references requires us to look for likely existing topics instead of topics that we can
         # guarantee are duplicates.

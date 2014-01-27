@@ -44,7 +44,7 @@ booktypes = ["book", "article"]
 sectiontypes = ["part", "chapter", "appendix", "section"]
 doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
 pressgang_host = "skynet.usersys.redhat.com"
-inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s* -->'
+inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s*-->'
 xref_regex = r'<\s*xref\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
 entity_regex = r'&.*?;'
 image_regex = r'images/.*\.png'

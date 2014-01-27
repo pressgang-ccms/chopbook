@@ -45,7 +45,8 @@ sectiontypes = ["part", "chapter", "appendix", "section"]
 doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
 pressgang_host = "skynet.usersys.redhat.com"
 inject_regex = r'<!--\s*Inject\s*:\s*(\d+)\s*-->'
-xref_regex = r'<\s*xref\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
+comment_regex = r'<!--.*?-->'
+xref_regex = r'<\s*xref_change\s+linkend\s*=\s*(\'|")(.*?)(\'|")\s*/>'
 entity_regex = r'&.*?;'
 image_regex = r'images/.*\.png'
 
@@ -744,10 +745,23 @@ while True:
 
         first_unsaved_topic_id = unsavedTopicsToProcess().iterkeys().next()
         first_unsaved_topic = topicxml_dict[first_unsaved_topic_id]
-        first_unsaved_topic_xml = tostring(first_unsaved_topic['xml'])
 
         matchingtopics = get_similar_topics(tostring(first_unsaved_topic['xml']), h)
         matchingtopic = None
+
+        for xref in first_unsaved_topic['xml'].iter("xref"):
+            if 'linkend' in xref.attrib and xref.attrib['linkend'] in id_dict.values():
+                xref.tag = "xref_change"
+
+        first_unsaved_topic_xml = tostring(first_unsaved_topic['xml'])
+
+        while re.search(inject_regex, first_unsaved_topic_xml) is not None:
+            first_unsaved_topic_xml = re.sub(inject_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
+
+        while re.search(xref_regex, first_unsaved_topic_xml) is not None:
+            if re.search(xref_regex, first_unsaved_topic_xml).group(2) in id_dict.values():
+                first_unsaved_topic_xml = re.sub(xref_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
+
 
         for topic in matchingtopics['items']:
 
@@ -756,13 +770,6 @@ while True:
             # We then confirm that the two topics are the same with the exception of the xrefs or injections.
             while re.search(inject_regex, xml) is not None:
                 xml = re.sub(inject_regex, "<!-- InjectPlaceholder: 0 -->", xml);
-
-            while re.search(inject_regex, first_unsaved_topic_xml) is not None:
-                first_unsaved_topic_xml = re.sub(inject_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
-
-            while re.search(xref_regex, first_unsaved_topic_xml) is not None:
-                if re.search(xref_regex, first_unsaved_topic_xml).group(2) in id_dict.values():
-                    first_unsaved_topic_xml = re.sub(xref_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
 
             # We need to normalise the documents to compare their equality. For the sake of convenience, this
             # normalisation does not attempt to preserve the validity or structure of the xml, but rather

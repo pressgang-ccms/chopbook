@@ -291,7 +291,7 @@ def createtopic(topicxml, title, dryrun, h, tags):
 '''
 def get_similar_topics(topicxml, h):
     resp, content = h.request(
-        'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/minhashsimilar/get/json?threshold=0.9&expand=%7B%22branches%22%3A%5B%7B%22trunk%22%3A%7B%22name%22%3A%20%22topics%22%7D%7D%5D%7D',
+        'http://' + pressgang_host + ':8080/pressgang-ccms/rest/1/minhashsimilar/get/json?threshold=0.6&expand=%7B%22branches%22%3A%5B%7B%22trunk%22%3A%7B%22name%22%3A%20%22topics%22%7D%7D%5D%7D',
         method="POST", body=topicxml, headers={'Content-Type': 'application/xml'})
     if resp['status'] == '200':
         return json.loads(content)
@@ -754,16 +754,15 @@ while True:
             xml = topic['item']['xml']
 
             # We then confirm that the two topics are the same with the exception of the xrefs or injections.
-            xref_count = 0
             while re.search(inject_regex, xml) is not None:
-                xml = re.sub(inject_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", xml);
-                xref_count += 1
+                xml = re.sub(inject_regex, "<!-- InjectPlaceholder: 0 -->", xml);
 
-            xref_count = 0
+            while re.search(inject_regex, first_unsaved_topic_xml) is not None:
+                first_unsaved_topic_xml = re.sub(inject_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
+
             while re.search(xref_regex, first_unsaved_topic_xml) is not None:
                 if re.search(xref_regex, first_unsaved_topic_xml).group(2) in id_dict.values():
-                    first_unsaved_topic_xml = re.sub(xref_regex, "<!-- InjectPlaceholder: " + str(xref_count) + " -->", first_unsaved_topic_xml);
-                    xref_count += 1
+                    first_unsaved_topic_xml = re.sub(xref_regex, "<!-- InjectPlaceholder: 0 -->", first_unsaved_topic_xml);
 
             # We need to normalise the documents to compare their equality. For the sake of convenience, this
             # normalisation does not attempt to preserve the validity or structure of the xml, but rather
@@ -772,15 +771,15 @@ while True:
             first_unsaved_topic_xml_pretty_print = normalise_entities(normalise_whitespace(first_unsaved_topic_xml))
 
             if (topic_pretty_print == first_unsaved_topic_xml_pretty_print):
-                matchingtopic = topic['id']
+                matchingtopic = topic['item']['id']
                 break
 
         if matchingtopic is None:
             pressgangid, matchedExistingTopic = createtopic(first_unsaved_topic['xml'], first_unsaved_topic['title'], dryrun, h, None)
             pressgangid_dict[first_unsaved_topic_id] = pressgangid
-            logentry(logfile, "Created topic " + str(pressgangid))
+            logentry(logfile, ("Matched" if matchedExistingTopic else "Created") + " topic " + str(pressgangid))
         else:
-            pressgangid_dict[first_unsaved_topic_id] = matchingtopic['item']['id']
+            pressgangid_dict[first_unsaved_topic_id] = matchingtopic
             # We rely on the fact that the saved topic has already dealt with xrefs
             xrefs_dict[first_unsaved_topic_id] = []
             processedxrefs_dict[first_unsaved_topic_id] = []

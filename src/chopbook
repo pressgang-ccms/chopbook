@@ -39,7 +39,8 @@ imagearray = {}
 topicid_list = []
 progress_log = []
 test_topicid = 1
-matchedTopics = 0
+matched_topics = 0
+created_topics = 0
 booktypes = ["book", "article"]
 sectiontypes = ["part", "chapter", "appendix", "section"]
 doctype = "<!DOCTYPE book PUBLIC \"-//OASIS//DTD DocBook XML V4.5//EN\" \"http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd\">"
@@ -283,6 +284,13 @@ def createtopic(topicxml, title, dryrun, h, tags):
             exit()
     else:
         topicid = "xxxxx"
+
+    if matchedExistingTopic is True:
+        global matched_topics
+        matched_topics += 1
+    else:
+        global created_topics
+        created_topics += 1
 
     # Return the topic ID and the topic title. Also return the list of ids in the topic for the xref conversion.
     return topicid, matchedExistingTopic
@@ -627,7 +635,6 @@ for section in book:
             pbar.update(current_progress)
 
 pbar.finish()
-logentry(logfile, "Topic creation complete. " + str(matchedTopics) + " topics were reused.")
 
 # Do a passthrough all topics and replace xrefs and images
 print "Fixing xrefs and images..."
@@ -799,7 +806,7 @@ while True:
         break
 
 pbar.finish()
-logentry(logfile, "xref and image fix complete")
+logentry(logfile, "xref and image fix complete. " + str(matched_topics) + " topics were reused, and " + str(created_topics) + " were created.")
 
 # Now that we have pressgang topic ids to go with the topics found in the book,
 # update the content spec lines

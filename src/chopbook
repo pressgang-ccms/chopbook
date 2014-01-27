@@ -226,7 +226,11 @@ def processtopic(topicxml, customtitle, changetosection):
         title = customtitle
 
     # Does the topic have any id attribute? If so, record them in case another topic xrefs it.
-    if "id" in topicxml.attrib: id = topicxml.attrib["id"]
+    if "id" in topicxml.attrib:
+        id = topicxml.attrib["id"]
+        # Now remove the id, because it will be removed when the topic is saved, and we need
+        # our XML to match the resulting XML on the server so it can be matched
+        topicxml.attrib.pop("id")
 
     # Fix the structure of <part> topics containing <partintro> so that they can be properly converted to a format that Pressgang can consume.
     if topicxml.tag == "part" and topicxml.find("partintro") is not None:
